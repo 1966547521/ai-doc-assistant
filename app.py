@@ -1,4 +1,4 @@
-"""Streamlit application for AI Document Assistant.
+﻿"""Streamlit application for AI Document Assistant.
 Main entry point with session initialization and feature routing.
 """
 import streamlit as st

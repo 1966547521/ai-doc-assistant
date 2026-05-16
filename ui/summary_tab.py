@@ -14,8 +14,8 @@ def render_summary_tab():
     # Show previously generated summary
     saved = st.session_state.get("_summary_result")
     if saved:
-        st.subheader(f"上次生成 · {saved.get('type', '')}")
-        st.write(saved.get("content", ""))
+        with st.expander(f"📄 上次摘要 · {saved.get('type', '')}", expanded=False):
+            st.write(saved.get("content", ""))
         st.divider()
 
     summary_type = st.selectbox(

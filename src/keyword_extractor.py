@@ -1,4 +1,4 @@
-"""Keyword extraction module using LLM with streaming support and logging.
+﻿"""Keyword extraction module using LLM with streaming support and logging.
 
 This module provides keyword, action item, and topic extraction capabilities
 with LLM validation for improved accuracy. All operations are logged for
@@ -36,18 +36,14 @@ class KeywordExtractor:
 
     def __init__(self, llm: Optional[BaseChatModel] = None):
         """Initialize the keyword extractor."""
-        logger.info("Initializing KeywordExtractor")
         self.llm = llm if llm is not None else get_llm()
         self._enhancer = None
-        logger.debug("KeywordExtractor initialized successfully")
 
     def _get_enhancer(self):
         """延迟初始化LLM增强器（延迟加载以优化性能）"""
         if self._enhancer is None:
-            logger.debug("Creating LLMEnhancer instance")
             from .llm_enhancer import LLMEnhancer
             self._enhancer = LLMEnhancer(self.llm)
-            logger.debug("LLMEnhancer instance created")
         return self._enhancer
 
     def _get_prompt(self, prompt_name: str, default: str) -> str:
@@ -62,9 +58,7 @@ class KeywordExtractor:
         """
         result = prompt_manager.get_prompt(prompt_name, default)
         if result is None:
-            logger.debug(f"Prompt '{prompt_name}' not found, using default")
             return default
-        logger.debug(f"Loaded prompt '{prompt_name}'")
         return result
 
     def _prepare_prompt(self, prompt_name: str, default: str, text: str) -> str:
@@ -85,8 +79,6 @@ class KeywordExtractor:
         Returns:
             List of extracted keywords, sorted by relevance
         """
-        logger.info(f"Extracting key terms from text (max_terms={max_terms}, validate={validate})")
-        logger.debug(f"Input text length: {len(text)} characters")
 
         if not text.strip():
             logger.warning("Empty text provided for keyword extraction")
@@ -103,20 +95,15 @@ class KeywordExtractor:
         )
 
         try:
-            logger.debug("Invoking LLM for keyword extraction")
             response = self.llm.invoke(prompt)
             terms = [t.strip() for t in response.content.split(",")]
             terms = [t for t in terms if t][:max_terms * self.VALIDATION_MULTIPLIER]
-            logger.debug(f"Extracted {len(terms)} initial keywords")
 
             if validate and len(terms) > self.MIN_ITEMS_FOR_KEYWORD_VALIDATION:
-                logger.debug("Validating keywords with LLMEnhancer")
                 enhancer = self._get_enhancer()
                 terms = enhancer.validate_keywords(text, terms)
-                logger.debug(f"After validation: {len(terms)} keywords remaining")
 
             result = terms[:max_terms]
-            logger.info(f"Keyword extraction completed, found {len(result)} keywords")
             return result
 
         except Exception as e:
@@ -133,8 +120,6 @@ class KeywordExtractor:
         Returns:
             List of extracted action items
         """
-        logger.info(f"Extracting action items (validate={validate})")
-        logger.debug(f"Input text length: {len(text)} characters")
 
         if not text.strip():
             logger.warning("Empty text provided for action item extraction")
@@ -151,7 +136,6 @@ class KeywordExtractor:
         )
 
         try:
-            logger.debug("Invoking LLM for action extraction")
             response = self.llm.invoke(prompt)
             lines = response.content.split("\n")
             actions = []
@@ -161,15 +145,11 @@ class KeywordExtractor:
                     line.startswith("-") or line.startswith("*") or line[0].isdigit()
                 ):
                     actions.append(re.sub(r"^[-*]+\s*|\d+\.\s*", "", line))
-            logger.debug(f"Extracted {len(actions)} initial action items")
 
             if validate and len(actions) > self.MIN_ITEMS_FOR_ACTION_VALIDATION:
-                logger.debug("Validating action items with LLMEnhancer")
                 enhancer = self._get_enhancer()
                 actions = enhancer.validate_actions(text, actions)
-                logger.debug(f"After validation: {len(actions)} action items remaining")
 
-            logger.info(f"Action extraction completed, found {len(actions)} items")
             return actions
 
         except Exception as e:
@@ -187,8 +167,6 @@ class KeywordExtractor:
         Returns:
             List of extracted topics
         """
-        logger.info(f"Extracting topics (max_topics={max_topics}, validate={validate})")
-        logger.debug(f"Input text length: {len(text)} characters")
 
         if not text.strip():
             logger.warning("Empty text provided for topic extraction")
@@ -205,20 +183,15 @@ class KeywordExtractor:
         )
 
         try:
-            logger.debug("Invoking LLM for topic extraction")
             response = self.llm.invoke(prompt)
             topics = [t.strip() for t in response.content.split("\n")]
             topics = [t for t in topics if t][:max_topics * self.VALIDATION_MULTIPLIER]
-            logger.debug(f"Extracted {len(topics)} initial topics")
 
             if validate and len(topics) > self.MIN_ITEMS_FOR_TOPIC_VALIDATION:
-                logger.debug("Validating topics with LLMEnhancer")
                 enhancer = self._get_enhancer()
                 topics = enhancer.validate_topics(text, topics)
-                logger.debug(f"After validation: {len(topics)} topics remaining")
 
             result = topics[:max_topics]
-            logger.info(f"Topic extraction completed, found {len(result)} topics")
             return result
 
         except Exception as e:
@@ -235,7 +208,6 @@ class KeywordExtractor:
         Yields:
             Streaming chunks of keyword extraction results
         """
-        logger.info(f"Streaming key term extraction (max_terms={max_terms})")
 
         if not text.strip():
             logger.warning("Empty text provided for streaming keyword extraction")
@@ -253,10 +225,8 @@ class KeywordExtractor:
         )
 
         try:
-            logger.debug("Streaming LLM response for keyword extraction")
             for chunk in self.llm.stream(prompt):
                 yield chunk.content
-            logger.info("Streaming keyword extraction completed")
 
         except (ConnectionError, RuntimeError) as e:
             logger.error(f"Error streaming key terms: {str(e)}", exc_info=True)
@@ -274,7 +244,6 @@ class KeywordExtractor:
         Yields:
             Streaming chunks of action item extraction results
         """
-        logger.info("Streaming action item extraction")
 
         if not text.strip():
             logger.warning("Empty text provided for streaming action extraction")
@@ -292,10 +261,8 @@ class KeywordExtractor:
         )
 
         try:
-            logger.debug("Streaming LLM response for action extraction")
             for chunk in self.llm.stream(prompt):
                 yield chunk.content
-            logger.info("Streaming action extraction completed")
 
         except (ConnectionError, RuntimeError) as e:
             logger.error(f"Error streaming action items: {str(e)}", exc_info=True)
@@ -314,7 +281,6 @@ class KeywordExtractor:
         Yields:
             Streaming chunks of topic extraction results
         """
-        logger.info(f"Streaming topic extraction (max_topics={max_topics})")
 
         if not text.strip():
             logger.warning("Empty text provided for streaming topic extraction")
@@ -332,10 +298,8 @@ class KeywordExtractor:
         )
 
         try:
-            logger.debug("Streaming LLM response for topic extraction")
             for chunk in self.llm.stream(prompt):
                 yield chunk.content
-            logger.info("Streaming topic extraction completed")
 
         except (ConnectionError, RuntimeError) as e:
             logger.error(f"Error streaming topics: {str(e)}", exc_info=True)

@@ -45,7 +45,7 @@ SYSTEM_PROMPT = f"""你是 AI 智能文档助手，专门分析用户上传的�
 | `analyze_structure` | 用户问结构/大纲/章节/层级/目录 | 无参数 |
 | `extract_info` | 用户要求提取关键词/行动项/主题 | target: keywords/actions/topics |
 | `translate_text` | 用户要求翻译（未指定文本则翻译全文） | text: 原文（可空）, target_language: English/中文/日本語等 |
-| `generate_report` | 用户要求完整报告/综合分析 | format_type: markdown/text |
+| `generate_report` | 用户要求完整报告/综合分析 | format_type: markdown/text, template: simple/standard/detailed |
 | `compare_documents` | 用户要求对比两篇文档 | 无参数（需先在对比页面上传第二篇文档） |
 
 {TOOL_PROMPT_INSTRUCTION}
@@ -168,6 +168,7 @@ class AgentSession:
             return f"工具 '{tool_name}' 未找到。可用工具: {', '.join(self.tool_map.keys())}"
 
         try:
+            logger.debug("Executing tool: %s(%s)", tool_name, str(tool_args)[:200])
             result = tool.invoke(tool_args)
             return str(result)
         except Exception as e:
@@ -227,6 +228,7 @@ class AgentSession:
             {"type": "error", "content": "..."}
         """
         messages = self._build_messages(query, chat_history)
+        logger.debug("Agent stream: %d messages, query=%s", len(messages), query[:50])
 
         for iteration in range(self.MAX_ITERATIONS):
             try:

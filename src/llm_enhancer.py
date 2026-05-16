@@ -5,7 +5,7 @@ document processing tasks, including quality analysis, validation, and optimizat
 All operations are logged for monitoring and debugging purposes.
 """
 
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Iterator
 import json
 
 from src.logger import get_logger
@@ -36,10 +36,8 @@ class LLMEnhancer:
         Args:
             llm: LLM instance to use for enhancement tasks
         """
-        logger.info("Initializing LLMEnhancer")
         self.llm = llm
         self.cache = {}
-        logger.debug("LLMEnhancer initialized successfully")
     
     def analyze_structure_quality(self, headings: List[Dict]) -> Dict:
         """分析章节结构质量（轻量检测）
@@ -50,11 +48,8 @@ class LLMEnhancer:
         Returns:
             Dictionary containing quality assessment and suggestions
         """
-        logger.info("Analyzing structure quality")
-        logger.debug(f"Analyzing {len(headings)} headings")
         
         if not headings:
-            logger.debug("No headings provided, returning low quality")
             return {"quality": "low", "suggestions": []}
         
         headings_text = "\n".join([f"{h['level']}: {h['text']}" for h in headings[:10]])
@@ -71,10 +66,8 @@ class LLMEnhancer:
 <END>"""
         
         try:
-            logger.debug("Invoking LLM for structure quality analysis")
             response = self.llm.invoke(prompt)
             result = self._parse_json_response(response.content)
-            logger.debug(f"Structure quality analysis result: {result}")
             return result if result else {"quality": "medium", "suggestions": []}
         except Exception as e:
             logger.error(f"Error analyzing structure quality: {str(e)}", exc_info=True)
@@ -90,11 +83,8 @@ class LLMEnhancer:
         Returns:
             Filtered list of relevant keywords
         """
-        logger.info("Validating keyword relevance")
-        logger.debug(f"Validating {len(keywords)} keywords")
         
         if not keywords or len(keywords) > 15:
-            logger.debug("Too many or no keywords, returning top 10")
             return keywords[:10]
         
         keywords_str = ", ".join(keywords)
@@ -108,10 +98,8 @@ class LLMEnhancer:
 <END>"""
         
         try:
-            logger.debug("Invoking LLM for keyword validation")
             response = self.llm.invoke(prompt)
             result = [k.strip() for k in response.content.split(",") if k.strip()]
-            logger.debug(f"Keyword validation completed, {len(result)} keywords remaining")
             return result[:8]
         except Exception as e:
             logger.error(f"Error validating keywords: {str(e)}", exc_info=True)
@@ -127,11 +115,8 @@ class LLMEnhancer:
         Returns:
             Filtered list of valid action items
         """
-        logger.info("Validating action items")
-        logger.debug(f"Validating {len(actions)} action items")
         
         if not actions or len(actions) > 10:
-            logger.debug("Too many or no actions, returning top 5")
             return actions[:5]
         
         actions_str = "\n".join([f"{i+1}. {a}" for i, a in enumerate(actions)])
@@ -146,10 +131,8 @@ class LLMEnhancer:
 <END>"""
         
         try:
-            logger.debug("Invoking LLM for action validation")
             response = self.llm.invoke(prompt)
             result = [a.strip() for a in response.content.split("\n") if a.strip()]
-            logger.debug(f"Action validation completed, {len(result)} actions remaining")
             return result[:5]
         except Exception as e:
             logger.error(f"Error validating actions: {str(e)}", exc_info=True)
@@ -165,11 +148,8 @@ class LLMEnhancer:
         Returns:
             Filtered list of relevant topics
         """
-        logger.info("Validating topic relevance")
-        logger.debug(f"Validating {len(topics)} topics")
         
         if not topics or len(topics) > 10:
-            logger.debug("Too many or no topics, returning top 5")
             return topics[:5]
         
         topics_str = ", ".join(topics)
@@ -183,10 +163,8 @@ class LLMEnhancer:
 <END>"""
         
         try:
-            logger.debug("Invoking LLM for topic validation")
             response = self.llm.invoke(prompt)
             result = [t.strip() for t in response.content.split(",") if t.strip()]
-            logger.debug(f"Topic validation completed, {len(result)} topics remaining")
             return result[:5]
         except Exception as e:
             logger.error(f"Error validating topics: {str(e)}", exc_info=True)
@@ -203,11 +181,8 @@ class LLMEnhancer:
         Returns:
             Enhanced summary text
         """
-        logger.info("Enhancing summary quality")
-        logger.debug(f"Summary length: {len(summary)}, max_length: {max_length}")
         
         if len(summary) < 50:
-            logger.debug("Summary too short, returning original")
             return summary
         
         prompt = f"""优化以下摘要，使其更简洁且信息完整（不超过{max_length}字）：
@@ -220,10 +195,8 @@ class LLMEnhancer:
 <END>"""
         
         try:
-            logger.debug("Invoking LLM for summary enhancement")
             response = self.llm.invoke(prompt)
             enhanced = response.content.strip()[:max_length + 50]
-            logger.debug(f"Summary enhancement completed, new length: {len(enhanced)}")
             return enhanced
         except Exception as e:
             logger.error(f"Error enhancing summary: {str(e)}", exc_info=True)
@@ -240,7 +213,6 @@ class LLMEnhancer:
         Returns:
             Dictionary with relevance, accuracy, completeness, and suggestion
         """
-        logger.info("Evaluating answer quality")
         
         prompt = f"""评估以下回答的质量：
 
@@ -259,10 +231,8 @@ class LLMEnhancer:
 <END>"""
         
         try:
-            logger.debug("Invoking LLM for answer evaluation")
             response = self.llm.invoke(prompt)
             result = self._parse_json_response(response.content)
-            logger.debug(f"Answer evaluation result: {result}")
             return result if result else {
                 "relevance": "medium", 
                 "accuracy": "medium", 
@@ -289,7 +259,6 @@ class LLMEnhancer:
         Returns:
             Dictionary with accuracy, fluency, and suggestion
         """
-        logger.info("Checking translation quality")
         
         prompt = f"""检查以下翻译的准确性和完整性：
 
@@ -306,10 +275,8 @@ class LLMEnhancer:
 <END>"""
         
         try:
-            logger.debug("Invoking LLM for translation quality check")
             response = self.llm.invoke(prompt)
             result = self._parse_json_response(response.content)
-            logger.debug(f"Translation quality check result: {result}")
             return result if result else {
                 "accuracy": "medium", 
                 "fluency": "medium", 
@@ -332,7 +299,6 @@ class LLMEnhancer:
         Returns:
             Document type classification
         """
-        logger.info("Detecting document type")
         
         prompt = f"""判断以下文本类型（学术论文/技术文档/报告/新闻/小说/其他）：
 
@@ -342,10 +308,8 @@ class LLMEnhancer:
 <END>"""
         
         try:
-            logger.debug("Invoking LLM for document type detection")
             response = self.llm.invoke(prompt)
             result = response.content.strip()
-            logger.debug(f"Document type detected: {result}")
             return result
         except Exception as e:
             logger.error(f"Error detecting document type: {str(e)}", exc_info=True)
@@ -361,7 +325,6 @@ class LLMEnhancer:
         Returns:
             List of improvement suggestions
         """
-        logger.info("Generating improvement suggestions")
         
         prompt = f"""分析以下文本，给出{max_suggestions}条改进建议，每条不超过20字：
 
@@ -371,7 +334,6 @@ class LLMEnhancer:
 <END>"""
         
         try:
-            logger.debug("Invoking LLM for improvement suggestions")
             response = self.llm.invoke(prompt)
             lines = response.content.strip().split("\n")[:max_suggestions]
             cleaned = []
@@ -380,47 +342,98 @@ class LLMEnhancer:
                 line = line.lstrip("0123456789.．、").strip()
                 if line and len(line) <= 30:
                     cleaned.append(line)
-            logger.debug(f"Generated {len(cleaned)} improvement suggestions")
             return cleaned
         except Exception as e:
             logger.error(f"Error generating improvement suggestions: {str(e)}", exc_info=True)
             return []
     
     def enhance_report(self, report: str, text: str) -> str:
-        """优化报告内容（中等消耗）
+        """深层润色报告——LLM 阅读全文后生成高质量综合分析报告。
 
         Args:
-            report: Original report to enhance
-            text: Context text for reference
+            report: 工具生成的 markdown 初稿（含统计数据/摘要/关键词/结构）
+            text: 原始文档全文（提供完整上下文）
 
         Returns:
-            Enhanced report text
+            经过 LLM 深层分析与润色的 markdown 报告
         """
-        logger.info("Enhancing report quality")
-        logger.debug(f"Report length: {len(report)}")
-        
+
         if len(report) < 100:
-            logger.debug("Report too short, returning original")
             return report
-        
-        prompt = f"""优化以下报告，使其结构更清晰、内容更专业：
 
-原始报告：{report[:500]}
+        text_snippet = text[:4000] if len(text) > 4000 else text
 
-文档内容：{text[:300]}
+        prompt = f"""你是一位资深文档分析师。请基于下面的统计数据和文档内容，撰写一份专业、有深度的综合分析报告（Markdown格式）。
 
-优化后的报告（不超过500字）：
-<END>"""
-        
+要求：
+1. **保持报告结构**：统计 → 摘要 → 关键词 → 结构分析 → 深度洞察
+2. **摘要要提炼核心论点**：不要照搬原文，要用自己的语言总结文档的核心主张和关键论据
+3. **关键词要加注解释**：每个关键词后面用括号注明它在文档中的作用
+4. **深度洞察至少3条**：包括文档的优势亮点、潜在盲区、改进建议
+5. **语言专业但可读**，每条洞察 1-2 句话，不要太长
+
+=== 初稿报告 ===
+{report}
+
+=== 文档内容（完整上下文） ===
+{text_snippet}
+
+请直接输出 Markdown 格式的报告，不要有任何前言或后语。
+"""
+
         try:
-            logger.debug("Invoking LLM for report enhancement")
             response = self.llm.invoke(prompt)
-            enhanced = response.content.strip()[:600]
-            logger.debug(f"Report enhancement completed, new length: {len(enhanced)}")
+            enhanced = response.content.strip()
+            # 去掉可能的 markdown 代码块包裹
+            if enhanced.startswith("```"):
+                lines = enhanced.split("\n")
+                enhanced = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
             return enhanced
         except Exception as e:
             logger.error(f"Error enhancing report: {str(e)}", exc_info=True)
             return report
+
+    def stream_enhance_report(self, report: str, text: str) -> Iterator[str]:
+        """流式深层润色报告——逐 token 返回 LLM 润色结果。
+
+        Args:
+            report: 工具生成的 markdown 初稿
+            text: 原始文档全文
+        Yields:
+            润色后的报告文本片段
+        """
+
+        if len(report) < 100:
+            yield report
+            return
+
+        text_snippet = text[:4000] if len(text) > 4000 else text
+
+        prompt = f"""你是一位资深文档分析师。请基于下面的统计数据和文档内容，撰写一份专业、有深度的综合分析报告（Markdown格式）。
+
+要求：
+1. **保持报告结构**：统计 → 摘要 → 关键词 → 结构分析 → 深度洞察
+2. **摘要要提炼核心论点**：不要照搬原文，要用自己的语言总结文档的核心主张和关键论据
+3. **关键词要加注解释**：每个关键词后面用括号注明它在文档中的作用
+4. **深度洞察至少3条**：包括文档的优势亮点、潜在盲区、改进建议
+5. **语言专业但可读**，每条洞察 1-2 句话，不要太长
+
+=== 初稿报告 ===
+{report}
+
+=== 文档内容（完整上下文） ===
+{text_snippet}
+
+请直接输出 Markdown 格式的报告，不要有任何前言或后语。
+"""
+
+        try:
+            for chunk in self.llm.stream(prompt):
+                if hasattr(chunk, "content") and chunk.content:
+                    yield chunk.content
+        except Exception as e:
+            logger.error(f"Error streaming report enhancement: {str(e)}", exc_info=True)
+            yield report
     
     def _parse_json_response(self, content: str) -> Optional[Dict]:
         """安全解析JSON响应
@@ -443,6 +456,4 @@ class LLMEnhancer:
     
     def clear_cache(self):
         """清空缓存"""
-        logger.info("Clearing LLMEnhancer cache")
         self.cache.clear()
-        logger.debug("Cache cleared successfully")

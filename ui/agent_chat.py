@@ -1,4 +1,4 @@
-"""Agent Chat UI — true streaming via st.write_stream.
+﻿"""Agent Chat UI — true streaming via st.write_stream.
 
 st.write_stream sends each yielded string as a separate frontend delta,
 achieving real character-by-character streaming in the browser.

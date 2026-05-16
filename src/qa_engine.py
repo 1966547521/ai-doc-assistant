@@ -1,4 +1,4 @@
-"""Question answering engine using RAG with custom prompts, semantic caching, and logging.
+﻿"""Question answering engine using RAG with custom prompts, semantic caching, and logging.
 
 This module provides document-based question answering capabilities with caching,
 LLM evaluation, and comprehensive logging support for monitoring and debugging.
@@ -26,7 +26,6 @@ class QAEngine:
     """QA engine for document-based question answering with caching and LLM evaluation."""
 
     def __init__(self, cache_manager: Optional[SemanticCacheManager] = None, llm: Optional[BaseChatModel] = None):
-        logger.info("Initializing QAEngine")
         self.llm = llm if llm is not None else get_llm()
         self.rag_chain = None
         self.retriever = None
@@ -35,7 +34,6 @@ class QAEngine:
         self._doc_snapshot: str = ""
         self.cache_manager = cache_manager or SemanticCacheManager()
         self._enhancer = None
-        logger.debug("QAEngine initialized successfully")
 
     def _get_enhancer(self):
         """延迟初始化LLM增强器"""
@@ -66,7 +64,6 @@ class QAEngine:
         Args:
             retriever: Document retriever to use for context retrieval
         """
-        logger.info("Setting retriever for QA chain")
         
         # Load prompt from file or use default
         template = prompt_manager.get_prompt(
@@ -94,7 +91,6 @@ class QAEngine:
         self._context_hash = None
         self._cached_questions = []
         
-        logger.debug("QA chain configured successfully")
 
     def answer(self, question: str, chat_history: str = "", evaluate: bool = False) -> Dict[str, str | list | Dict]:
         """Answer a question based on the indexed documents with caching.
@@ -107,8 +103,6 @@ class QAEngine:
         Returns:
             Dictionary containing answer, sources, and evaluation
         """
-        logger.info(f"Answering question (evaluate={evaluate})")
-        logger.debug(f"Question length: {len(question)} chars, chat_history: {len(chat_history)} chars")
 
         if not self.rag_chain:
             logger.warning("QA chain not configured, returning error")
@@ -123,7 +117,6 @@ class QAEngine:
             context_hash = self._compute_context_hash()
             cached_answer = self.cache_manager.get_qa(question, context_hash)
             if cached_answer:
-                logger.debug("Found cached answer")
                 sources = self.get_sources(question, chat_history)
                 return {"answer": cached_answer, "sources": sources, "evaluation": None}
 
@@ -131,13 +124,11 @@ class QAEngine:
             if chat_history:
                 full_question = f"历史对话:\n{chat_history}\n\n当前问题:\n{question}"
 
-            logger.debug("Invoking RAG chain for answer")
             answer = self.rag_chain.invoke(full_question)
 
             # Cache the result
             self.cache_manager.cache_qa(question, context_hash, answer)
             self._cached_questions.append(question)
-            logger.debug("Answer cached successfully")
 
             sources = []
             context = ""
@@ -149,11 +140,9 @@ class QAEngine:
             # LLM评估回答质量
             evaluation = None
             if evaluate:
-                logger.debug("Evaluating answer quality with LLM")
                 enhancer = self._get_enhancer()
                 evaluation = enhancer.evaluate_answer(question, answer, context)
 
-            logger.info(f"Answer generated, length: {len(answer)}")
             return {"answer": answer, "sources": sources, "evaluation": evaluation}
         
         except Exception as e:
@@ -170,14 +159,11 @@ class QAEngine:
         Returns:
             List of answer dictionaries
         """
-        logger.info(f"Batch answering {len(questions)} questions")
         
         results: List[Dict[str, str | list | Dict]] = []
         for i, question in enumerate(questions):
-            logger.debug(f"Processing question {i+1}/{len(questions)}")
             results.append(self.answer(question, evaluate=evaluate))
         
-        logger.info("Batch answering completed")
         return results
 
     def stream_answer(self, question: str, chat_history: str = "") -> Iterator[str]:
@@ -190,7 +176,6 @@ class QAEngine:
         Yields:
             Streaming answer chunks
         """
-        logger.info("Streaming answer")
 
         if not self.rag_chain:
             logger.warning("QA chain not configured")
@@ -207,7 +192,6 @@ class QAEngine:
             context_hash = self._compute_context_hash()
             cached_answer = self.cache_manager.get_qa(question, context_hash)
             if cached_answer:
-                logger.debug("Streaming cached answer")
                 yield "📝 (来自缓存) "
                 for char in cached_answer:
                     yield char
@@ -217,7 +201,6 @@ class QAEngine:
             if chat_history:
                 full_question = f"历史对话:\n{chat_history}\n\n当前问题:\n{question}"
 
-            logger.debug("Streaming RAG chain response")
             stream = self.rag_chain.stream(full_question)
             full_answer = []
             for chunk in stream:
@@ -232,7 +215,6 @@ class QAEngine:
             # Cache the result after streaming completes
             self.cache_manager.cache_qa(question, context_hash, "".join(full_answer))
             self._cached_questions.append(question)
-            logger.debug("Streamed answer cached successfully")
         
         except (ConnectionError, RuntimeError) as e:
             logger.error(f"Error streaming answer: {str(e)}", exc_info=True)

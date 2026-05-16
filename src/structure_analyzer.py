@@ -1,4 +1,4 @@
-"""Document structure analysis with regex extraction + LLM-powered deep understanding.
+﻿"""Document structure analysis with regex extraction + LLM-powered deep understanding.
 
 Two-phase approach:
   Phase 1 — Regex: fast heading/section extraction (always works, no API call)
@@ -19,7 +19,6 @@ class StructureAnalyzer:
     """Analyzes document structure — regex extraction + LLM semantic understanding."""
 
     def __init__(self):
-        logger.info("Initializing StructureAnalyzer")
 
         self.title_patterns = [
             (r"^#{1}\s+(.+)", "h1"),
@@ -44,7 +43,6 @@ class StructureAnalyzer:
         ]
 
         self._llm_available: Optional[bool] = None
-        logger.debug("StructureAnalyzer initialized with %d title patterns", len(self.title_patterns))
 
     # ── LLM helper ──────────────────────────────────────────────
 
@@ -55,7 +53,6 @@ class StructureAnalyzer:
                 from src.utils import get_llm
                 self._llm_enhancer = LLMEnhancer(get_llm())
                 self._llm_available = True
-                logger.debug("LLM enhancer initialized for structure analysis")
             except Exception as e:
                 logger.warning("Failed to initialize LLM enhancer: %s", str(e))
                 self._llm_available = False
@@ -89,7 +86,6 @@ class StructureAnalyzer:
     # ── Phase 1: Regex extraction ───────────────────────────────
 
     def extract_headings(self, text: str, use_llm: bool = True) -> List[Dict[str, str]]:
-        logger.info("Extracting headings (regex phase)")
         lines = text.split("\n")
         headings = []
         for i, line in enumerate(lines):
@@ -103,7 +99,6 @@ class StructureAnalyzer:
                     if self._is_valid_heading(heading_text):
                         headings.append({"text": heading_text, "level": level, "line_number": i + 1})
                     break
-        logger.info("Extracted %d headings", len(headings))
         return headings
 
     def calculate_structure_similarity(self, headings: List[Dict[str, str]]) -> float:
@@ -170,7 +165,6 @@ class StructureAnalyzer:
             sections.append(current_section)
 
         preamble = "\n".join(preamble_lines).strip()
-        logger.info("Extracted %d sections, %d preamble chars", len(sections), len(preamble))
         return sections, preamble
 
     def validate_heading_levels(self, headings: List[Dict[str, str]]) -> dict:
@@ -273,7 +267,6 @@ class StructureAnalyzer:
             response = enhancer.llm.invoke(prompt)
             result = enhancer._parse_json_response(response.content)
             if result:
-                logger.info("LLM deep analysis completed")
                 return result
         except Exception as e:
             logger.error("LLM deep analysis failed: %s", str(e))
@@ -330,14 +323,12 @@ class StructureAnalyzer:
         Returns a dict with all structure information plus optional LLM insights:
           doc_type, doc_purpose, section_summaries, overview, quality
         """
-        logger.info("Starting document analysis (use_llm=%s)", use_llm)
 
         headings = self.extract_headings(text)
         similarity = self.calculate_structure_similarity(headings)
         has_structure = len(headings) >= 2 or similarity >= similarity_threshold
 
         if not has_structure and len(headings) < 2:
-            logger.info("Document has no recognizable structure")
             return {
                 "headings": [], "structure_tree": [], "sections": [], "preamble": text,
                 "total_headings": 0, "total_sections": 0, "depth": 0,
@@ -378,7 +369,6 @@ class StructureAnalyzer:
                         for title, summary in summaries.items()
                     ]
 
-        logger.info("Document analysis completed: %d headings, %d sections", len(headings), len(sections))
         return result
 
     # ── Tree utilities ──────────────────────────────────────────

@@ -1,4 +1,4 @@
-"""Document processing module for AI Document Assistant with logging support.
+﻿"""Document processing module for AI Document Assistant with logging support.
 
 This module provides comprehensive document reading capabilities for various
 file formats including PDF, DOCX, XLSX, PPTX, TXT, and Markdown.
@@ -107,11 +107,9 @@ class DocumentProcessor:
 
     def __init__(self):
         """Initialize the document processor with text splitter."""
-        logger.info("Initializing DocumentProcessor")
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000, chunk_overlap=200, length_function=len
         )
-        logger.debug("DocumentProcessor initialized with chunk_size=1000, chunk_overlap=200")
 
     def read_pdf(self, file_path: str) -> str:
         """Extract text from a PDF file.
@@ -301,27 +299,20 @@ class DocumentProcessor:
             ValueError: If file format is not supported
             ImportError: If required library is not installed for the format
         """
-        logger.info(f"Reading document: {file_path}")
 
         lower_path = file_path.lower()
         
         if lower_path.endswith(".pdf"):
-            logger.debug("Detected PDF format")
             return self.read_pdf(file_path)
         if lower_path.endswith(".docx"):
-            logger.debug("Detected DOCX format")
             return self.read_docx(file_path)
         if lower_path.endswith(".xlsx"):
-            logger.debug("Detected XLSX format")
             return self.read_xlsx(file_path)
         if lower_path.endswith(".pptx"):
-            logger.debug("Detected PPTX format")
             return self.read_pptx(file_path)
         if lower_path.endswith(".txt"):
-            logger.debug("Detected TXT format")
             return self.read_txt(file_path)
         if lower_path.endswith(".md"):
-            logger.debug("Detected Markdown format")
             return self.read_markdown(file_path)
         
         logger.error(f"Unsupported file format: {file_path}")
@@ -353,13 +344,12 @@ class DocumentProcessor:
                 - char_count: Character count
                 - chunk_count: Number of chunks
         """
-        logger.info(f"Processing document: {file_path}")
+        logger.debug("Processing document: %s", file_path)
 
         try:
             # Detect format
             ext = file_path.lower().split(".")[-1]
             format_name = self.SUPPORTED_FORMATS.get(f".{ext}", {}).get("name", ext.upper())
-            logger.debug(f"Detected format: {format_name}")
 
             # Read and process
             text = self.read_document(file_path)
@@ -373,7 +363,6 @@ class DocumentProcessor:
                 "chunk_count": len(chunks),
             }
 
-            logger.info(f"Document processed successfully: {len(text)} chars, {len(chunks)} chunks")
             return result
 
         except Exception as e:

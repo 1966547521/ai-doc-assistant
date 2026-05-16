@@ -50,9 +50,10 @@ def render_entity_tab():
 
     if st.session_state.extraction_results:
         st.divider()
-        for label, content in st.session_state.extraction_results.items():
-            st.subheader(label)
-            st.write(content)
+        with st.expander("📄 上次提取结果", expanded=False):
+            for label, content in st.session_state.extraction_results.items():
+                st.subheader(label)
+                st.write(content)
 
 
 def _save_extraction():

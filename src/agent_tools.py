@@ -241,11 +241,12 @@ def translate_text(text: str = "", target_language: str = "English") -> str:
 # ═══════════════════════════════════════════════════════════════
 
 @tool
-def generate_report(format_type: str = "markdown") -> str:
+def generate_report(format_type: str = "markdown", template: str = "standard") -> str:
     """生成上传文档的完整综合分析报告。当用户说"生成报告"、"给我一份分析"、"出个综合报告"时使用。
 
     Args:
         format_type: 报告格式，可选 "markdown" 或 "text"
+        template: 报告模板，可选 "simple"(简洁)、"standard"(标准)、"detailed"(详尽+AI润色)
     """
     doc_text = _get_doc_text()
     if not doc_text:
@@ -259,7 +260,10 @@ def generate_report(format_type: str = "markdown") -> str:
         if format_type == "text":
             result = generator.generate_full_report(doc_text)
         else:
-            result = generator.generate_markdown_report(doc_text)
+            enhance = template == "detailed"
+            result = generator.generate_markdown_report(
+                doc_text, enhance=enhance, template=template
+            )
         return result
     except Exception as e:
         return f"❌ 报告生成出错: {str(e)}"

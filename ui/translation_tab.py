@@ -54,7 +54,7 @@ def render_translation_tab():
         content = saved.get("content", "")
         # Strip progress markers for display
         display_content = _clean_result(content)
-        with st.expander("查看翻译", expanded=True):
+        with st.expander("查看翻译", expanded=False):
             st.markdown(display_content)
         _render_html_downloads(display_content, saved["lang"])
 

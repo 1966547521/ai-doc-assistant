@@ -1,4 +1,4 @@
-"""Document summarization engine with custom prompts, streaming, and logging support.
+﻿"""Document summarization engine with custom prompts, streaming, and logging support.
 
 This module provides comprehensive document summarization capabilities with multiple
 summary formats and LLM enhancement support. All operations are logged for
@@ -21,10 +21,8 @@ class SummaryEngine:
     """Generates summaries for documents using LLM with enhancement support."""
 
     def __init__(self, llm: Optional[BaseChatModel] = None):
-        logger.info("Initializing SummaryEngine")
         self.llm = llm if llm is not None else get_llm()
         self._enhancer = None
-        logger.debug("SummaryEngine initialized successfully")
 
     def _get_enhancer(self):
         """延迟初始化LLM增强器"""
@@ -49,8 +47,6 @@ class SummaryEngine:
         Returns:
             Generated summary text
         """
-        logger.info(f"Generating summary (length={length}, enhance={enhance})")
-        logger.debug(f"Input text length: {len(text)} characters")
 
         if not text.strip():
             logger.warning("Empty text provided for summary generation")
@@ -82,18 +78,15 @@ class SummaryEngine:
                 prompt_key, default_prompt.get(length, default_prompt["short"])
             )
             prompt = prompt.format(text=text[:5000])
-            logger.debug("Invoking LLM for summary generation")
             response = self.llm.invoke(prompt)
             summary = response.content
             
             # LLM优化摘要质量
             if enhance and len(summary) > 50:
-                logger.debug("Enhancing summary quality with LLM")
                 enhancer = self._get_enhancer()
                 max_length = {"short": 150, "detailed": 300, "comprehensive": 500}.get(length, 150)
                 summary = enhancer.enhance_summary(summary, text, max_length)
             
-            logger.info(f"Summary generation completed, length: {len(summary)}")
             return summary
         
         except Exception as e:
@@ -110,7 +103,6 @@ class SummaryEngine:
         Returns:
             Generated bullet-point summary
         """
-        logger.info(f"Generating bullet summary (enhance={enhance})")
 
         if not text.strip():
             logger.warning("Empty text provided for bullet summary")
@@ -126,17 +118,14 @@ class SummaryEngine:
 请以项目符号列表形式输出主要要点。""",
             )
             prompt = prompt.format(text=text[:5000])
-            logger.debug("Invoking LLM for bullet summary")
             response = self.llm.invoke(prompt)
             summary = response.content
             
             # LLM优化摘要质量
             if enhance and len(summary) > 50:
-                logger.debug("Enhancing bullet summary quality")
                 enhancer = self._get_enhancer()
                 summary = enhancer.enhance_summary(summary, text, 200)
             
-            logger.info(f"Bullet summary completed, length: {len(summary)}")
             return summary
         
         except Exception as e:
@@ -153,7 +142,6 @@ class SummaryEngine:
         Returns:
             Generated executive summary
         """
-        logger.info(f"Generating executive summary (enhance={enhance})")
 
         if not text.strip():
             logger.warning("Empty text provided for executive summary")
@@ -175,17 +163,14 @@ class SummaryEngine:
 请用简洁专业的语言表达。""",
             )
             prompt = prompt.format(text=text[:5000])
-            logger.debug("Invoking LLM for executive summary")
             response = self.llm.invoke(prompt)
             summary = response.content
             
             # LLM优化摘要质量
             if enhance and len(summary) > 50:
-                logger.debug("Enhancing executive summary quality")
                 enhancer = self._get_enhancer()
                 summary = enhancer.enhance_summary(summary, text, 300)
             
-            logger.info(f"Executive summary completed, length: {len(summary)}")
             return summary
         
         except Exception as e:
@@ -202,7 +187,6 @@ class SummaryEngine:
         Returns:
             Generated Q&A summary
         """
-        logger.info(f"Generating Q&A summary (enhance={enhance})")
 
         if not text.strip():
             logger.warning("Empty text provided for Q&A summary")
@@ -225,17 +209,14 @@ class SummaryEngine:
 请以清晰的问答形式输出。""",
             )
             prompt = prompt.format(text=text[:5000])
-            logger.debug("Invoking LLM for Q&A summary")
             response = self.llm.invoke(prompt)
             summary = response.content
             
             # LLM优化摘要质量
             if enhance and len(summary) > 50:
-                logger.debug("Enhancing Q&A summary quality")
                 enhancer = self._get_enhancer()
                 summary = enhancer.enhance_summary(summary, text, 350)
             
-            logger.info(f"Q&A summary completed, length: {len(summary)}")
             return summary
         
         except Exception as e:
@@ -252,15 +233,12 @@ class SummaryEngine:
         Returns:
             Dictionary of section summaries
         """
-        logger.info(f"Generating section summaries (sections={len(sections)}, enhance={enhance})")
         
         summaries = {}
         for section in sections:
             if "title" in section and "content" in section:
-                logger.debug(f"Summarizing section: {section['title']}")
                 summaries[section["title"]] = self.generate_summary(section["content"], enhance=enhance)
         
-        logger.info(f"Section summaries completed, {len(summaries)} sections processed")
         return summaries
 
     # Streaming methods

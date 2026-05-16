@@ -1,4 +1,4 @@
-"""Sidebar components for AI Document Assistant."""
+﻿"""Sidebar components for AI Document Assistant."""
 import os
 import tempfile
 import streamlit as st
@@ -94,7 +94,6 @@ def _handle_processing(uploaded_files, use_incremental):
         st.warning("请先上传文档")
         return
 
-    logger.info(f"Starting document processing for {len(uploaded_files)} files")
 
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -122,7 +121,6 @@ def _handle_processing(uploaded_files, use_incremental):
             all_documents.extend(documents)
 
             os.unlink(temp_path)
-            logger.info(f"Processed file: {file.name}, {len(text)} characters")
 
         except Exception as e:
             logger.error(f"Error processing file {file.name}: {str(e)}", exc_info=True)
@@ -145,7 +143,6 @@ def _handle_processing(uploaded_files, use_incremental):
         st.session_state.qa_engine.set_retriever(retriever)
         st.session_state.qa_engine.set_context_snapshot(full_text[:5000])
         st.session_state.documents_uploaded = True
-        logger.info(f"Vectorization completed: {result['added']} added, {result['skipped']} skipped")
 
     except Exception as e:
         logger.error(f"Error during vectorization: {str(e)}", exc_info=True)
@@ -158,7 +155,6 @@ def _handle_processing(uploaded_files, use_incremental):
     try:
         analyzer = st.session_state.structure_analyzer
         st.session_state.analysis_results = analyzer.analyze_document(full_text)
-        logger.info("Document structure analysis completed")
 
     except Exception as e:
         logger.error(f"Error during structure analysis: {str(e)}", exc_info=True)
@@ -198,13 +194,11 @@ def _handle_processing(uploaded_files, use_incremental):
         message += f" (跳过 {result['skipped']} 个重复片段)"
     message += f" (总计: {doc_count} 个片段)"
     st.success(message)
-    logger.info(f"Document processing completed successfully: {message}")
     st.session_state.upload_key += 1
 
 
 def _handle_clear_index():
     """Clear all indexes and caches."""
-    logger.info("Clearing all indexes and caches")
 
     st.session_state.vector_store.clear_store()
     st.session_state.cache_manager.clear_all()
@@ -219,7 +213,6 @@ def _handle_clear_index():
 
     st.session_state.upload_key = st.session_state.get("upload_key", 0) + 1
     st.info("索引已清除")
-    logger.info("Indexes and caches cleared successfully")
 
 
 def _render_session_history():
