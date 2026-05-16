@@ -1,151 +1,162 @@
-# 📚 AI 智能文档助手 (AI Document Assistant)
 
-基于 **RAG** 架构的全栈 AI 文档处理平台，支持多格式文档上传、智能问答、摘要生成、结构分析、实体提取、翻译和报告生成。
+# 📚 AI 智能文档助手 (AI Document Agent)
 
-## 🏗️ 架构
+> 💡 **一个带自定义 ReAct Agent 的全栈 RAG 文档分析平台。**  
+> 上传文档 → Agent 自主分析 → 问答/摘要/翻译/对比/报告，全自动。
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.10+-blue?style=flat&logo=python" />
+  <img src="https://img.shields.io/badge/LLM-DeepSeek/GPT/Ollama-green?style=flat" />
+  <img src="https://img.shields.io/badge/Vector-ChromaDB-orange?style=flat" />
+  <img src="https://img.shields.io/badge/Tests-210%20passed-brightgreen?style=flat" />
+  <img src="https://img.shields.io/badge/License-MIT-yellow?style=flat" />
+</p>
+
+---
+
+## 🤖 AI Agent 架构
 
 ```
-用户 → Streamlit UI
-         ↓
-   ┌─────────────────────────────────────┐
-   │  DocumentProcessor                  │  PDF/DOCX/XLSX/PPTX/TXT/MD
-   │  VectorStoreManager (ChromaDB)      │  向量化 + 增量去重
-   │  QAEngine (LangChain RAG)           │  检索增强生成
-   │  SummaryEngine / StructureAnalyzer  │  摘要 / 结构分析
-   │  TranslationEngine                  │  8 语言翻译
-   │  ReportGenerator                    │  综合分析报告
-   │  DocumentComparer                   │  diff 对比
-   └─────────────────────────────────────┘
-         ↓
-   LLM Provider (DeepSeek / DashScope / Ollama)
-   Embedding Provider (DashScope / OpenAI / Ollama)
-         ↓
-   SemanticCache (LRU + Jaccard similarity)
-   SessionManager (sessions.json 持久化)
+用户输入 "帮我总结然后翻译成日语"
+       │
+       ▼
+┌─────────────────────────────────────┐
+│      AgentSession.stream()         │
+│                                     │
+│  ┌─ 1. Build Messages ───────────┐ │
+│  │  SystemPrompt + 历史 + 新消息  │ │
+│  └────────────────────────────────┘ │
+│              ▼                      │
+│  ┌─ 2. _stream_llm() ───────────┐  │
+│  │  LLM.stream() 逐 token 接收   │  │
+│  │  首个字符 = ⚙️?               │  │
+│  │  ├─ YES → 工具调用，静默收集   │  │
+│  │  └─ NO  → 逐字流式输出到前端   │  │
+│  └────────────────────────────────┘ │
+│              ▼                      │
+│  ┌─ 3. 检测工具标记 ────────────┐  │
+│  │  ⚙️TOOL:{"name":...}⚙️END   │  │
+│  │  正则解析 → 工具名 + 参数     │  │
+│  └────────────────────────────────┘ │
+│              ▼                      │
+│  ┌─ 4. Execute Tool ────────────┐  │
+│  │  ask_document / summarize... │  │
+│  │  结果塞回 messages           │  │
+│  └───────┬──────────────────────┘  │
+│          └──── 循环回到 2 ──────┘  │
+│                                    │
+│  ┌─ 5. 无工具标记 → 输出完毕 ──┐  │
+│  │  token 已流式展示，yield done│  │
+│  └────────────────────────────────┘ │
+└─────────────────────────────────────┘
 ```
 
-## 🚀 快速开始
+### 为什么自写 Agent，不用 LangChain create_agent？
 
-### 前置条件
+| 问题 | 说明 |
+|------|------|
+| **DeepSeek reasoning bug** | LangGraph 序列化消息时丢失 `reasoning_content`，DeepSeek API 400 报错 |
+| **逐字流式** | 框架层不支持 `for char in token` 级别的流式粒度控制 |
+| **工具调用兼容** | 文本标记 `⚙️TOOL:` 不依赖模型 function calling 能力，任何 LLM 通用 |
 
-- Python 3.10+
-- [Ollama](https://ollama.com) (可选，用于本地模型)
+**项目切换 `deepseek-chat`（非 reasoning 模型）即可直接使用主流 Agent 框架。** 自写 loop 是为了展示对 Agent 原理的完整理解。
 
-### 安装
+---
+
+## 🚀 快速体验
 
 ```bash
 cd ai-doc-assistant
 pip install -r requirements.txt
-```
-
-### 配置
-
-复制 `.env.example` 为 `.env`，填写 API 密钥：
-
-```bash
-cp .env.example .env
-```
-
-至少配置以下之一：
-
-| 方式 | 需要设置 |
-|------|---------|
-| DeepSeek API | `DEEPSEEK_API_KEY` |
-| DashScope (阿里云) | `DASHSCOPE_API_KEY` |
-| Ollama 本地 | 安装并启动 Ollama（无需 API key） |
-
-### 启动
-
-```bash
+cp .env.example .env     # 填写 API key
 streamlit run app.py
 ```
 
-打开 `http://localhost:8501`
-
-### Docker (推荐)
+或 Docker：
 
 ```bash
-docker-compose up
+docker-compose up        # 内置 Ollama
 ```
 
-## ✨ 功能
+---
 
-| 功能 | 说明 |
-|------|------|
-| 💬 **智能问答** | RAG 检索增强生成，支持多轮对话、参考来源、语义缓存、回答中断 |
-| 📝 **文档摘要** | 5 种摘要类型（简明/详细/要点/执行/问答式），流式输出 |
-| 🏗️ **结构分析** | 正则提取 + LLM 语义理解，文档类型识别、章节总结、质量评估 |
-| 🔍 **实体提取** | 关键词、行动项、主题提取，LLM 验证相关性 |
-| 🌍 **文档翻译** | 8 种语言互译，自动检测源语言，TXT/MD/DOCX/PDF 下载 |
-| 📊 **报告生成** | 一键生成 Markdown/纯文本综合分析报告 |
-| 🔄 **文档对比** | 相似度计算、差异摘要、逐行对比 |
-| 📜 **会话管理** | 历史会话保存/恢复，生成内容持久化 |
+## ✨ 功能矩阵
+
+| 功能 | 说明 | Agent 支持 |
+|------|------|:---:|
+| 🧠 **AI Agent** | 自然语言驱动，自主判断意图、调用工具、多步推理 | ⭐ |
+| 💬 **智能问答** | RAG 检索增强，向量库搜索 + LLM 生成 | ⭐ |
+| 📝 **文档摘要** | 5 种摘要类型（short/detailed/bullet/executive/qa） | ⭐ |
+| 🏗️ **结构分析** | 正则提取标题 + LLM 语义理解，文档类型/质量评估 | ⭐ |
+| 🔍 **实体提取** | 关键词、行动项、主题提取，LLM 验证相关性 | ⭐ |
+| 🌍 **文档翻译** | 8 语言互译，自动检测源语言，4 格式下载 | ⭐ |
+| 📊 **报告生成** | 一键生成综合 Markdown 分析报告 | ⭐ |
+| 🔄 **文档对比** | 相似度计算、差异摘要、逐行高亮对比 | ⭐ |
+
+---
 
 ## 🛠️ 技术栈
 
-| 层 | 技术 |
-|----|------|
-| 前端 | Streamlit (wide layout, custom CSS theme) |
-| RAG 框架 | LangChain (chains, retrievers, splitters) |
-| 向量数据库 | ChromaDB (persistent, with dimension detection) |
-| LLM | DeepSeek v4 / DashScope qwen-plus / Ollama |
-| Embeddings | DashScope text-embedding-v3 / OpenAI / Ollama nomic-embed-text |
-| 文档解析 | PyPDF2 / python-docx / openpyxl / python-pptx |
-| PDF 生成 | reportlab (CJK TrueType font support) |
-| 缓存 | 自定义 SemanticCache (Jaccard 相似度 + LRU) |
-| 日志 | 自定义 LoggerManager (文件 + 控制台 + 日切) |
-| 测试 | pytest (168 用例) |
+| 层 | 技术 | 用途 |
+|----|------|------|
+| 前端 | **Streamlit** | Web UI + 自定义 Arctic Frost 主题 |
+| Agent 框架 | **自定义 ReAct** | Think→Act→Observe 循环，文本标记工具调用 |
+| RAG | **LangChain + ChromaDB** | 文档分块、向量化、相似度检索 |
+| LLM | **DeepSeek / GPT / Ollama** | 多 provider 自动 fallback |
+| 文档解析 | **PyPDF2 / python-docx / openpyxl / python-pptx** | PDF/DOCX/XLSX/PPTX/TXT/MD |
+| 缓存 | **SemanticCache (Jaccard + LRU)** | QA 语义缓存 |
+| 持久化 | **JSON session store** | 会话历史 + 生成内容保存 |
+| 日志 | **Rotating file + console** | info/error/detail 三级 |
+| 测试 | **pytest（210 用例）** | 单元测试 + mock 覆盖 |
+
+---
 
 ## 📁 项目结构
 
 ```
 ai-doc-assistant/
 ├── app.py                 # Streamlit 入口
-├── requirements.txt       # Python 依赖
-├── Dockerfile
-├── docker-compose.yml
-├── .streamlit/
-│   └── config.toml        # Streamlit 主题配置
-├── src/                   # 核心业务逻辑
-│   ├── document_processor.py
-│   ├── vector_store.py
-│   ├── qa_engine.py
-│   ├── summary_engine.py
-│   ├── structure_analyzer.py
-│   ├── keyword_extractor.py
-│   ├── llm_enhancer.py
-│   ├── translation_engine.py
-│   ├── report_generator.py
-│   ├── document_comparer.py
-│   ├── cache_manager.py
-│   ├── session_manager.py
-│   ├── history_manager.py
-│   ├── memory_manager.py
-│   ├── prompt_manager.py
-│   ├── logger.py
-│   └── utils.py
-├── ui/                    # Streamlit UI 组件
-│   ├── theme.py
-│   ├── utils.py
-│   ├── sidebar.py
-│   ├── qa_tab.py
-│   ├── summary_tab.py
-│   ├── structure_tab.py
-│   ├── entity_tab.py
-│   ├── translation_tab.py
-│   ├── report_tab.py
-│   └── compare_tab.py
-├── tests/                 # 单元测试 (pytest)
-├── prompts/               # Prompt 模板
-└── docs/                  # 文档
+├── src/                   # 业务逻辑层
+│   ├── agent.py           # 🤖 AgentSession ReAct 循环（核心）
+│   ├── agent_tools.py     # 7 个 LangChain @tool
+│   ├── qa_engine.py       # RAG 问答引擎
+│   ├── vector_store.py    # ChromaDB 向量库管理
+│   ├── summary_engine.py  # 摘要生成
+│   ├── structure_analyzer.py  # 文档结构分析
+│   ├── keyword_extractor.py   # 信息提取
+│   ├── translation_engine.py  # 翻译引擎
+│   ├── report_generator.py    # 报告生成
+│   ├── document_comparer.py   # 文档对比
+│   ├── cache_manager.py    # 语义缓存
+│   ├── session_manager.py  # 会话持久化
+│   └── ...
+├── ui/                    # UI 组件
+│   ├── agent_chat.py      # Agent 对话界面
+│   ├── sidebar.py         # 侧边栏导航
+│   └── *.py               # 各功能 Tab
+├── tests/                 # pytest (210 用例)
+└── Dockerfile / docker-compose.yml
 ```
+
+---
 
 ## 🧪 测试
 
 ```bash
-pytest tests/ -v
-pytest tests/ --cov=src --cov-report=html  # 覆盖率报告
+pytest tests/ -v           # 210 用例
+pytest tests/ --cov=src    # 覆盖率
 ```
+
+---
+
+## 🎯 面试亮点
+
+- **ReAct Agent 手写实现**：理解 Agent 本质，能独立实现而不依赖黑盒框架
+- **解决 DeepSeek 兼容性问题**：定位 LangGraph 序列化与 reasoning model 的冲突，用文本标记绕开，非回避而是解决
+- **生产级工程实践**：依赖注入、模块解耦、日志系统、语义缓存、会话持久化、210 个单测
+- **架构决策能力**：对比 LangChain create_agent / CrewAI / 自写方案的 trade-off，能讲清楚选型理由
+
+---
 
 ## 📄 License
 
