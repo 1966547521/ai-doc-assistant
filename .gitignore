@@ -41,6 +41,9 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
+# Benchmark temporary data
+chroma_e2e_bench/
+
 # OS
 .DS_Store
 Thumbs.db

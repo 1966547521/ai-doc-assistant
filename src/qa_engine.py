@@ -113,9 +113,9 @@ class QAEngine:
             return {"answer": "请输入有效的问题", "sources": [], "evaluation": None}
 
         try:
-            # Check cache first
+            # Check cache first (exact + semantic)
             context_hash = self._compute_context_hash()
-            cached_answer = self.cache_manager.get_qa(question, context_hash)
+            cached_answer = self.cache_manager.get_qa_semantic(question, context_hash)
             if cached_answer:
                 sources = self.get_sources(question, chat_history)
                 return {"answer": cached_answer, "sources": sources, "evaluation": None}
@@ -188,9 +188,9 @@ class QAEngine:
             return
 
         try:
-            # Check cache first
+            # Check cache first (exact + semantic)
             context_hash = self._compute_context_hash()
-            cached_answer = self.cache_manager.get_qa(question, context_hash)
+            cached_answer = self.cache_manager.get_qa_semantic(question, context_hash)
             if cached_answer:
                 yield "📝 (来自缓存) "
                 for char in cached_answer:

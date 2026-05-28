@@ -35,7 +35,7 @@ class SemanticCacheManager:
         cache_dir: str = "cache",
         max_entries: int = 1000,
         default_ttl: float = 3600 * 24,  # 24 hours
-        similarity_threshold: float = 0.95,  # Cosine similarity threshold for semantic match
+        similarity_threshold: float = 0.25,  # Jaccard similarity threshold for semantic match
     ):
         self.cache_dir = cache_dir
         self.max_entries = max_entries
@@ -197,15 +197,13 @@ class SemanticCacheManager:
     @staticmethod
     def _compute_similarity(text1: str, text2: str) -> float:
         """
-        Simple text similarity using character n-grams
-        For better performance, you might want to use sentence-transformers
-
-        Returns:
-            Similarity score between 0 and 1
+        Character n-gram Jaccard similarity with adaptive n based on text length.
+        Short text (e.g., Chinese questions) uses bigrams for better overlap.
         """
+        avg_len = (len(text1) + len(text2)) / 2
+        n = 2 if avg_len < 50 else 3
 
-        # Simple Jaccard similarity on character trigrams
-        def get_ngrams(s: str, n: int = 3) -> set:
+        def get_ngrams(s: str) -> set:
             s = s.lower()
             return set(s[i : i + n] for i in range(len(s) - n + 1))
 
@@ -238,14 +236,63 @@ class SemanticCacheManager:
         return self.get(key, None)
 
     def cache_qa(self, question: str, context_hash: str, answer: str) -> None:
-        """Cache QA responses"""
-        key = f"qa:{context_hash}:{question}"
-        self.set(key, answer, ttl=3600)  # 1 hour TTL for QA
+        """Cache QA response with question text for semantic lookup."""
+        question_hash = self._hash_key(question)
+        key = f"qa:{context_hash}:{question_hash}"
+        self.set(key, {"q": question, "a": answer}, ttl=3600)
 
     def get_qa(self, question: str, context_hash: str) -> Optional[str]:
-        """Get cached QA response"""
-        key = f"qa:{context_hash}:{question}"
-        return self.get(key, None)
+        """Get cached QA response by exact hash match."""
+        question_hash = self._hash_key(question)
+        key = f"qa:{context_hash}:{question_hash}"
+        value = self.get(key, None)
+        if isinstance(value, dict):
+            return value.get("a")
+        if isinstance(value, str):
+            return value
+        return None
+
+    def get_qa_semantic(
+        self, question: str, context_hash: str, threshold: Optional[float] = None
+    ) -> Optional[str]:
+        """Get cached QA response with semantic similarity fallback.
+
+        First tries exact match, then scans all cached QA entries
+        for similar questions using Jaccard trigram similarity.
+
+        Args:
+            question: The question to look up
+            context_hash: Document context hash for exact match
+            threshold: Override similarity_threshold
+
+        Returns:
+            Cached answer or None
+        """
+        # 1. Exact match first (fast path)
+        exact = self.get_qa(question, context_hash)
+        if exact is not None:
+            return exact
+
+        # 2. Scan cached QA entries for semantic similarity
+        thresh = threshold if threshold is not None else self.similarity_threshold
+        best_score = 0.0
+        best_answer = None
+
+        for entry in list(self._cache.values()):
+            value = entry.value
+            if not isinstance(value, dict):
+                continue
+            cached_q = value.get("q")
+            if not cached_q:
+                continue
+            score = self._compute_similarity(question, cached_q)
+            if score >= thresh and score > best_score:
+                best_score = score
+                best_answer = value.get("a")
+
+        if best_answer is not None:
+            self._hits += 1
+        return best_answer
 
     def get_cache_stats(self) -> Dict[str, Any]:
         """Get cache statistics"""
