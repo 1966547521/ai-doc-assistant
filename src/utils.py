@@ -1,4 +1,4 @@
-"""Shared utilities for the AI Document Assistant."""
+﻿"""Shared utilities for the AI Document Assistant."""
 
 import logging
 import os
@@ -8,6 +8,13 @@ from dotenv import dotenv_values
 from langchain_openai import ChatOpenAI
 
 logger = logging.getLogger(__name__)
+# Track which LLM provider is currently active (for UI display)
+_last_llm_provider = None
+
+
+def get_last_llm_provider():
+    """Return the name of the last successfully initialized LLM provider."""
+    return _last_llm_provider
 
 _env_values = dotenv_values(".env")
 
@@ -23,7 +30,10 @@ def _get_env(key: str, default=None):
 
 
 def _get_api_key(key: str) -> str:
-    """Get API key from system environment only (never from .env)."""
+    """Get API key from .env first, then system environment."""
+    val = _env_values.get(key)
+    if val:
+        return val
     return os.getenv(key) or ""
 
 
@@ -95,6 +105,7 @@ def get_llm(temperature: float = 0.0) -> ChatOpenAI:
     2. DashScope API (when DASHSCOPE_API_KEY is configured, no LLM_API_KEY)
     3. Local Ollama (fallback)
     """
+    global _last_llm_provider
     api_key = (
         _get_api_key("LLM_API_KEY")
         or _get_api_key("DEEPSEEK_API_KEY")
@@ -117,7 +128,8 @@ def get_llm(temperature: float = 0.0) -> ChatOpenAI:
 
         base_url = _get_env("LOCAL_LLM_URL", "http://localhost:11434/v1")
         model = _get_env("LOCAL_LLM_MODEL") or get_default_ollama_llm_model()
-
+        _last_llm_provider = f"Ollama ({model})"
+        _last_llm_provider = f"Ollama ({model})"
         return ChatOpenAI(
             model=model, api_key="ollama", base_url=base_url, temperature=temperature  # type: ignore
         )
@@ -132,8 +144,10 @@ def get_llm(temperature: float = 0.0) -> ChatOpenAI:
             or "https://dashscope.aliyuncs.com/compatible-mode/v1"
         )
         model = _get_env("DASHSCOPE_MODEL") or "qwen-plus"
+        _last_llm_provider = f"DashScope ({model})"
     else:
         model = "deepseek-v4-flash"
+        _last_llm_provider = f"DeepSeek ({model})"
 
     try:
         return ChatOpenAI(
@@ -144,6 +158,7 @@ def get_llm(temperature: float = 0.0) -> ChatOpenAI:
             logger.warning("API call failed (%s), falling back to Ollama", e)
             base_url = _get_env("LOCAL_LLM_URL", "http://localhost:11434/v1")
             model = _get_env("LOCAL_LLM_MODEL") or get_default_ollama_llm_model()
+            _last_llm_provider = f"Ollama ({model}) [降级]"
             return ChatOpenAI(
                 model=model,
                 api_key="ollama",  # type: ignore

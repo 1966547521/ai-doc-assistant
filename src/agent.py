@@ -1,4 +1,4 @@
-"""AI Agent — custom ReAct loop with text-based tool calling and session isolation.
+﻿"""AI Agent — custom ReAct loop with text-based tool calling and session isolation.
 
 Each conversation session gets its own AgentSession instance.
 Uses text-based tool calling (XML-like tags) instead of native function calling
@@ -176,43 +176,59 @@ class AgentSession:
             return f"工具执行出错: {str(e)}"
 
     def _stream_llm(self, messages: List[BaseMessage]) -> Iterator[Dict[str, Any]]:
-        """Stream LLM tokens with tool call detection.
+        """Stream LLM tokens with sliding-window tool call detection.
 
-        Buffers only the FIRST token to check for tool marker (⚙️).
-        If tool call → collects rest silently.
-        If text → streams all tokens in real-time including the first one.
+        Accumulates incoming tokens and scans for the tool marker (⚙️TOOL:)
+        anywhere in the text, not just at the start. If found, stops streaming
+        and silently collects the rest. Otherwise, outputs tokens in real-time
+        in ~20-char batches for smooth rendering.
 
         Last event: {"type": "_stream_done", "content": "<full text>"}
         """
-        all_tokens = []
-        mode = None  # None=checking, True=streaming, False=collecting
+        all_chars = []
+        streaming = False
+        streamed_count = 0
+        BATCH_SIZE = 20
+        CHECK_BUFFER = len(TOOL_CALL_START) + 10
+        HOLD_BACK = len(TOOL_CALL_START) - 1  # chars to hold back (might start tool marker)
 
         for chunk in self.llm.stream(messages):
             token = getattr(chunk, 'content', '') or ''
             if not token:
                 continue
-            all_tokens.append(token)
+            all_chars.extend(token)
+            text = "".join(all_chars)
+            marker_at = text.find(TOOL_CALL_START)
 
-            if mode is None:
-                # Check first token: does it start with the tool emoji?
-                text = "".join(all_tokens)
-                if text.strip()[:1] == TOOL_CALL_START[0]:
-                    # First char is ⚙️ → tool call, collect silently
-                    mode = False
-                elif len(text) >= 2:
-                    # Not a tool call → stream immediately
-                    mode = True
-                    for c in text:
-                        yield {"type": "token", "content": c}
-                # else: need 1-2 more tokens to be sure
+            if marker_at >= 0:
+                before_marker = text[streamed_count:marker_at]
+                if before_marker:
+                    for i in range(0, len(before_marker), BATCH_SIZE):
+                        yield {"type": "token", "content": before_marker[i:i+BATCH_SIZE]}
+                streaming = False
+                streamed_count = marker_at
                 continue
 
-            if mode:
-                # Split chunk into characters for finest streaming granularity
-                for char in token:
-                    yield {"type": "token", "content": char}
+            if not streaming:
+                if len(all_chars) >= CHECK_BUFFER:
+                    streaming = True
+                    full = "".join(all_chars)
+                    for i in range(0, len(full), BATCH_SIZE):
+                        yield {"type": "token", "content": full[i:i+BATCH_SIZE]}
+                    streamed_count = len(full)
+                continue
 
-        content = "".join(all_tokens)
+            new_text = text[streamed_count:]
+            if len(new_text) > HOLD_BACK:
+                safe = new_text[:-HOLD_BACK]
+                for i in range(0, len(safe), BATCH_SIZE):
+                    yield {"type": "token", "content": safe[i:i+BATCH_SIZE]}
+                streamed_count += len(safe)
+
+        content = "".join(all_chars)
+        if not streaming and TOOL_CALL_START not in content and content.strip():
+            for i in range(0, len(content), BATCH_SIZE):
+                yield {"type": "token", "content": content[i:i+BATCH_SIZE]}
         yield {"type": "_stream_done", "content": content}
 
     def stream(
@@ -231,21 +247,17 @@ class AgentSession:
         logger.debug("Agent stream: %d messages, query=%s", len(messages), query[:50])
 
         for iteration in range(self.MAX_ITERATIONS):
+            content = ""
             try:
-                stream_events = list(self._stream_llm(messages))
+                for evt in self._stream_llm(messages):
+                    if evt["type"] == "token":
+                        yield evt
+                    elif evt["type"] == "_stream_done":
+                        content = evt.get("content", "")
             except Exception as e:
                 logger.error("LLM stream failed (iter %d): %s", iteration, str(e))
                 yield {"type": "error", "content": str(e)}
                 return
-
-            # Extract the final content from _stream_done event
-            content = ""
-            for evt in stream_events:
-                if evt["type"] == "_stream_done":
-                    content = evt.get("content", "")
-                elif evt["type"] == "token":
-                    yield evt  # Forward the token to the UI
-
             if not content:
                 yield {"type": "done"}
                 return
@@ -262,10 +274,22 @@ class AgentSession:
                 for tc in tool_calls:
                     tool_name = tc["name"]
                     display = TOOL_NAMES_CN.get(tool_name, tool_name)
+
+                    # Build args preview for UI display
+                    args_parts = []
+                    for k, v in tc.get("args", {}).items():
+                        if v and v != "" and k != "text":  # skip full text
+                            v_str = str(v)
+                            if len(v_str) > 20:
+                                v_str = v_str[:20] + "..."
+                            args_parts.append(f"{k}={v_str}")
+                    args_preview = ", ".join(args_parts)
+
                     yield {
                         "type": "tool_start",
                         "tool": tool_name,
                         "display": display,
+                        "args_preview": args_preview,
                     }
 
                     result = self._execute_tool(tool_name, tc["args"])
@@ -275,6 +299,7 @@ class AgentSession:
                     ))
 
                     yield {"type": "tool_end", "tool": tool_name}
+                    yield {"type": "reasoning", "content": "正在分析工具结果..."}
 
                 # Loop back to LLM with tool results
                 continue

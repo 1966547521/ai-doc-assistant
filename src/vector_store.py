@@ -1,4 +1,4 @@
-"""Vector store management with incremental updates and deduplication."""
+﻿"""Vector store management with incremental updates and deduplication."""
 
 import hashlib
 import os
@@ -151,6 +151,42 @@ class VectorStoreManager:
                     raise
 
         return {"added": added, "skipped": skipped, "total": len(documents)}
+
+    def add_documents_batched(
+        self,
+        documents: List[Document],
+        batch_size: int = 10,
+        incremental: bool = True,
+        progress_callback=None,
+    ) -> Dict[str, int]:
+        """Add documents in batches with progress reporting.
+
+        Processes documents in small batches with a progress callback
+        for each batch. This avoids blocking the UI during large uploads.
+
+        Args:
+            documents: Documents to add
+            batch_size: Number of documents per batch
+            incremental: If True, skip duplicates
+            progress_callback: Optional callable(current, total) for each batch
+
+        Returns:
+            Dict with stats
+        """
+        total = len(documents)
+        added = 0
+        skipped = 0
+
+        for i in range(0, total, batch_size):
+            batch = documents[i:i + batch_size]
+            result = self.add_documents(batch, incremental=incremental)
+            added += result["added"]
+            skipped += result["skipped"]
+
+            if progress_callback:
+                progress_callback(min(i + batch_size, total), total)
+
+        return {"added": added, "skipped": skipped, "total": total}
 
     def _recreate_store(self) -> None:
         """Delete and recreate the vector store."""

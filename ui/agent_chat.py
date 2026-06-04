@@ -130,37 +130,53 @@ def render_agent_chat():
 
         with st.chat_message("assistant"):
             tool_status = st.empty()
+            reasoning_placeholder = st.empty()
 
             def _token_gen():
                 """Generator that yields text tokens for st.write_stream."""
                 nonlocal tool_events
                 tool_badges = []
+                token_buffer = []
                 for event in stream_agent(query, chat_history, session_id=sid):
                     etype = event.get("type", "")
 
                     if etype == "tool_start":
+                        reasoning_placeholder.empty()
                         name = event.get("tool", "?")
                         display = event.get("display", name)
-                        tool_events.append({"tool": name, "display": display})
+                        args_preview = event.get("args_preview", "")
+                        tool_label = f"{display}({args_preview})" if args_preview else display
+                        tool_events.append({"tool": name, "display": display, "args_preview": args_preview})
                         tool_badges.append(
-                            f'<span class="tool-badge active">🔧 {display}</span>'
+                            f'<span class="tool-badge active">🔧 {tool_label}</span>'
                         )
                         tool_status.markdown(
                             " ".join(tool_badges), unsafe_allow_html=True
                         )
 
+                    elif etype == "reasoning":
+                        reasoning_placeholder.caption(f"🧠 {event.get('content', '分析中...')}")
+
                     elif etype == "tool_end":
                         tool_status.empty()
+                        reasoning_placeholder.empty()
                         tool_badges = [b.replace("active", "done") for b in tool_badges]
 
                     elif etype == "token":
-                        yield event.get("content", "")
-                        time.sleep(0.03)
+                        # Batch 20 chars to minimize re-renders (prevents scroll bounce)
+                        token_buffer.append(event.get("content", ""))
+                        if len(token_buffer) >= 20:
+                            yield "".join(token_buffer)
+                            token_buffer.clear()
 
                     elif etype == "error":
                         yield f"\n\n❌ {event['content']}"
 
                     elif etype == "done":
+                        if token_buffer:
+                            yield "".join(token_buffer)
+                            token_buffer.clear()
+                        reasoning_placeholder.empty()
                         if tool_badges:
                             tool_status.markdown(
                                 " ".join(tool_badges), unsafe_allow_html=True

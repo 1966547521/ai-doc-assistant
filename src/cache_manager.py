@@ -279,16 +279,16 @@ class SemanticCacheManager:
         best_answer = None
 
         for entry in list(self._cache.values()):
-                value = entry.value
-                if not isinstance(value, dict):
-                    continue
-                cached_q = value.get("q")
-                if not cached_q:
-                    continue
-                score = self._compute_similarity(question, cached_q)
-                if score >= thresh and score > best_score:
-                    best_score = score
-                    best_answer = value.get("a")
+            value = entry.value
+            if not isinstance(value, dict):
+                continue
+            cached_q = value.get("q")
+            if not cached_q:
+                continue
+            score = self._compute_similarity(question, cached_q)
+            if score >= thresh and score > best_score:
+                best_score = score
+                best_answer = value.get("a")
 
         if best_answer is not None:
             self._hits += 1

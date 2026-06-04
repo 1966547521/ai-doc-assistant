@@ -6,6 +6,7 @@ from src.document_processor import DocumentProcessor
 from src.prompt_manager import prompt_manager
 from src.logger import get_logger
 from ui.utils import restore_session_content
+from src.utils import get_last_llm_provider
 
 logger = get_logger("ui.sidebar")
 
@@ -84,6 +85,8 @@ def render_sidebar():
     st.divider()
     _render_cache_status()
     st.divider()
+    _render_provider_status()
+
     _render_admin_panel()
 
 
@@ -131,18 +134,38 @@ def _handle_processing(uploaded_files, use_incremental):
     status_text.text("🔄 正在向量化文档...")
     progress_bar.progress(current_step / total_steps)
 
+    st.session_state.current_document_text = full_text
+    st.session_state.documents_uploaded = True
+
     try:
-        st.session_state.current_document_text = full_text
+        # Use batched processing with per-chunk progress for large documents
+        total_chunks = len(all_documents)
+        if total_chunks > 20:
+            def _on_batch(current, total):
+                status_text.text(
+                    f"🔄 正在向量化: {current}/{total} 个片段..."
+                )
+                # Map vectorization progress to the remaining progress bar
+                vec_start = current_step / total_steps
+                vec_end = (current_step + 1) / total_steps
+                bar_progress = vec_start + (current / total) * (vec_end - vec_start)
+                progress_bar.progress(min(bar_progress, 1.0))
 
-        result = st.session_state.vector_store.add_documents(
-            all_documents,
-            incremental=use_incremental
-        )
-
+            batch_size = max(5, total_chunks // 20)
+            result = st.session_state.vector_store.add_documents_batched(
+                all_documents,
+                batch_size=batch_size,
+                incremental=use_incremental,
+                progress_callback=_on_batch,
+            )
+        else:
+            result = st.session_state.vector_store.add_documents(
+                all_documents,
+                incremental=use_incremental
+            )
         retriever = st.session_state.vector_store.vector_store.as_retriever()
         st.session_state.qa_engine.set_retriever(retriever)
         st.session_state.qa_engine.set_context_snapshot(full_text[:5000])
-        st.session_state.documents_uploaded = True
 
     except Exception as e:
         logger.error(f"Error during vectorization: {str(e)}", exc_info=True)
@@ -344,6 +367,7 @@ def _on_restore(session):
     _restore_session(session)
     # Clear stale agent cache so new session gets fresh AgentSession
     st.session_state.pop(f"_agent_session_{session.id}", None)
+    st.session_state.pop(f"_agent_messages_{session.id}", None)
     st.rerun()
 
 
@@ -385,6 +409,28 @@ def _render_cache_status():
         st.session_state.cache_manager.clear_all()
         st.info("缓存已清除")
 
+
+def _render_provider_status():
+    """Render current LLM provider info in sidebar."""
+    st.header("🤖 LLM Provider")
+    provider = get_last_llm_provider()
+    if provider:
+        if "Ollama" in provider:
+            badge_color = "#4a6fa5"
+        elif "DeepSeek" in provider:
+            badge_color = "#137333"
+        elif "DashScope" in provider:
+            badge_color = "#e67e22"
+        else:
+            badge_color = "#5f6368"
+        st.markdown(f"""
+        <div style="display:flex;align-items:center;gap:8px;">
+            <div style="width:8px;height:8px;border-radius:50%;background:{badge_color};"></div>
+            <span style="font-size:0.85rem;color:#333;">{provider}</span>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.caption("未检测到 Provider")
 
 def _render_admin_panel():
     """Render admin panel for prompt management."""

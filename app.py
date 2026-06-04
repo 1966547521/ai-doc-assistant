@@ -1,4 +1,4 @@
-﻿"""Streamlit application for AI Document Assistant.
+"""Streamlit application for AI Document Assistant.
 Main entry point with session initialization and feature routing.
 """
 import streamlit as st
@@ -29,7 +29,7 @@ from ui.compare_tab import render_compare_tab
 logger = get_logger("app")
 load_dotenv()
 
-st.set_page_config(page_title="AI 智能文档助手", page_icon="📚", layout="wide")
+st.set_page_config(page_title="AI 智能文档助手", page_icon="🧠", layout="wide")
 inject_theme()
 logger.info("AI Document Assistant application starting")
 
@@ -64,7 +64,7 @@ def init_session_state():
             "documents_uploaded": False,
             "current_document_text": "",
             "analysis_results": {},
-            "active_tab": "🧠 AI Agent",
+            "active_tab": "🧠 AI 助手",
         }
         for key, value in scalar_defaults.items():
             if key not in st.session_state:
@@ -75,7 +75,7 @@ def init_session_state():
 
 # Route to features
 FEATURE_ROUTES = {
-    "🧠 AI Agent": render_agent_chat,
+    "🧠 AI 助手": render_agent_chat,
     "📝 文档摘要": render_summary_tab,
     "🏗️ 结构分析": render_structure_tab,
     "🔍 实体提取": render_entity_tab,
@@ -94,7 +94,7 @@ def main():
         <div style="width:48px;height:4px;background:linear-gradient(90deg,#4a6fa5,#7ba5d1);border-radius:2px;margin-bottom:8px;"></div>
     </div>
     """, unsafe_allow_html=True)
-    st.title("📚 AI 智能文档助手")
+    st.title("🧠 AI 智能文档助手")
     st.caption("上传文档，智能分析与问答 · 支持 PDF / DOCX / PPTX / XLSX / TXT / MD")
 
     with st.sidebar:
@@ -102,7 +102,7 @@ def main():
 
     # Scroll to top when switching features
     prev_tab = st.session_state.get("_prev_tab", "")
-    current_tab = st.session_state.get("active_tab", "🧠 AI Agent")
+    current_tab = st.session_state.get("active_tab", "🧠 AI 助手")
     if prev_tab != current_tab:
         st.session_state._prev_tab = current_tab
         components.html("<script>window.scrollTo(0, 0);</script>", height=0)
