@@ -13,6 +13,13 @@ python-pptx>=0.6.23,<1.0.0
 requests>=2.31.0,<3.0.0
 reportlab>=4.0.0,<5.0.0
 fpdf2>=2.7.0,<3.0.0
+# FastAPI
+fastapi>=0.111.0,<1.0.0
+uvicorn[standard]>=0.29.0,<1.0.0
+python-jose[cryptography]>=3.3.0,<4.0.0
+passlib[bcrypt]>=1.7.4,<2.0.0
+python-multipart>=0.0.9,<1.0.0
+pydantic>=2.0.0,<3.0.0
 # 代码质量工具
 pytest>=8.0.0,<10.0.0
 pytest-cov>=4.1.0,<7.0.0

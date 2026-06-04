@@ -1,10 +1,23 @@
-version: "3.9"
-
 services:
   app:
     build: .
     ports:
       - "8501:8501"
+    env_file:
+      - .env
+    volumes:
+      - ./sessions.json:/app/sessions.json
+      - ./history.json:/app/history.json
+      - ./chroma_db:/app/chroma_db
+      - ./cache:/app/cache
+      - ./logs:/app/logs
+    restart: unless-stopped
+
+  api:
+    build: .
+    command: python start_api.py
+    ports:
+      - "8000:8000"
     env_file:
       - .env
     volumes:
