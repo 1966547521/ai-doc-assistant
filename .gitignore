@@ -21,6 +21,10 @@ env/
 data/
 *.sqlite3
 
+# Local documents used for manual demos and acceptance testing
+docs/*.pdf
+docs/*.docx
+
 # Local model artifacts
 models/
 *.bin

@@ -204,6 +204,10 @@ RAG 问答、摘要、翻译与报告通过 OpenAI 兼容 API 的流式接口输
 ```
 ai-doc-assistant/
 ├── app.py                    # Streamlit 入口
+├── api/                       # FastAPI 应用、路由与启动入口
+│   ├── server.py              # FastAPI 进程入口
+│   ├── main.py                # FastAPI 应用与路由注册
+│   └── routes/                # API 路由
 ├── src/
 │   ├── agent.py              # 结构化 Agent 路由
 │   ├── agent_tools.py        # 7 个分析工具
@@ -242,6 +246,8 @@ ai-doc-assistant/
 │   ├── theme.py              # 主题定制
 │   └── utils.py              # UI 工具函数
 ├── tests/                    # 单元、服务与可选真实 API 集成测试
+├── scripts/                  # 本地开发和性能工具
+│   └── benchmark.py          # 手动端到端性能基准
 ├── Dockerfile
 ├── docker-compose.yml
 ├── requirements.txt

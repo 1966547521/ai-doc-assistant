@@ -6,8 +6,8 @@ This script measures real pipeline performance — you need:
   2. Sample documents in tests/sample_docs/ (or specify your own paths)
 
 Usage:
-    python benchmark.py                          # defaults
-    python benchmark.py --docs my_docs/*.pdf      # custom doc path
+    python scripts/benchmark.py                          # defaults
+    python scripts/benchmark.py --docs my_docs/*.pdf      # custom doc path
 
 Output: prints a performance report table to console.
 """
@@ -17,9 +17,11 @@ import os
 import time
 import sys
 import json
+from pathlib import Path
 
 # Add project root to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.document_processor import DocumentProcessor
 from src.cache_manager import SemanticCacheManager
@@ -205,7 +207,7 @@ def find_sample_docs():
     """Auto-discover sample documents."""
     paths = []
     for pattern in ["tests/sample_docs/*", "docs/*", "*.pdf", "*.txt", "*.md"]:
-        paths.extend(glob.glob(pattern))
+        paths.extend(glob.glob(str(PROJECT_ROOT / pattern)))
     # Only real files (no dirs)
     paths = [p for p in paths if os.path.isfile(p)]
     return paths
