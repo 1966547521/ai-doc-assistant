@@ -83,7 +83,7 @@ def render_structure_tab():
     with col2:
         st.subheader("📑 标题分布")
         headings = results.get("headings", [])
-        dist = st.session_state.structure_analyzer.get_level_distribution(headings)
+        dist = st.session_state.application_service.structure_analyzer.get_level_distribution(headings)
         st.write(f"一级 (h1): **{dist.get('h1', 0)}**")
         st.write(f"二级 (h2): **{dist.get('h2', 0)}**")
         st.write(f"三级 (h3): **{dist.get('h3', 0)}**")
@@ -133,7 +133,7 @@ def render_structure_tab():
         st.subheader("📑 文档大纲")
         tree = results.get("structure_tree", [])
         if tree:
-            outline = st.session_state.structure_analyzer.format_tree_outline(tree)
+            outline = st.session_state.application_service.structure_analyzer.format_tree_outline(tree)
             render_outline(outline)
 
     # ── Validation ────────────────────────────────────────────

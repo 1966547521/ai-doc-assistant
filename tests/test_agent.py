@@ -1,149 +1,204 @@
-"""Tests for AI Agent tools and agent session."""
-from unittest.mock import Mock, patch, MagicMock
+"""Behavior tests for structured Agent routing and streaming events."""
 
-from src.agent_tools import (
-    ask_document, summarize_document,
-    extract_info, translate_text, compare_documents,
-    ALL_TOOLS,
-)
-from src.agent import AgentSession, stream_agent, TOOL_CALL_START, TOOL_CALL_END
+from langchain_core.tools import StructuredTool
+
+from src.agent import AgentRoute, AgentSession, ToolInvocation, stream_agent
 
 
-def _make_mock_llm(response_content=""):
-    """Create a mock LLM that supports stream() returning content as chunks."""
-    mock = MagicMock()
-    mock.invoke.return_value = Mock(content=response_content)
+class FakeStructuredLLM:
+    """Deterministic boundary double for the external structured-output API."""
 
-    def _mock_stream(_messages):
-        """Simulate streaming: yield each character as a chunk."""
-        for char in response_content:
-            yield Mock(content=char)
+    def __init__(self, route=None, error=None):
+        self.route = route
+        self.error = error
+        self.schema = None
+        self.messages = None
 
-    mock.stream = _mock_stream
-    return mock
+    def with_structured_output(self, schema):
+        self.schema = schema
+        return self
+
+    def invoke(self, messages):
+        self.messages = messages
+        if self.error:
+            raise self.error
+        return self.route
 
 
-def _make_tool_call_text(tool_name, **kwargs):
-    """Generate mock tool call text."""
-    import json
-    args = json.dumps(kwargs)
-    return f"{TOOL_CALL_START}\n{{\"name\": \"{tool_name}\", \"arguments\": {args}}}\n{TOOL_CALL_END}"
+def _tool(name, result, calls):
+    if name == "ask_document":
+        def run(question: str):
+            """Answer a document question."""
+            calls.append((name, {"question": question}))
+            return result
+    elif name == "summarize_document":
+        def run(style: str = "short"):
+            """Summarize a document."""
+            calls.append((name, {"style": style}))
+            return result
+    elif name == "translate_text":
+        def run(text: str, target_language: str):
+            """Translate document text."""
+            calls.append((name, {
+                "text": text,
+                "target_language": target_language,
+            }))
+            return result
+    else:
+        def run():
+            """Run a document operation without arguments."""
+            calls.append((name, {}))
+            return result
+
+    return StructuredTool.from_function(
+        func=run,
+        name=name,
+        description=f"用于测试 {name} 的真实工具包装。",
+    )
 
 
-class TestAgentTools:
-    """Test each tool independently with mocked engines."""
-
-    def test_all_tools_registered(self):
-        assert len(ALL_TOOLS) == 7
-        tool_names = {t.name for t in ALL_TOOLS}
-        expected = {
-            "ask_document", "summarize_document", "analyze_structure",
-            "extract_info", "translate_text", "generate_report", "compare_documents"
-        }
-        assert tool_names == expected
-
-    def test_ask_document_no_document(self, monkeypatch):
-        monkeypatch.setattr("src.agent_tools._get_doc_text", lambda: "")
-        result = ask_document.invoke({"question": "test"})
-        assert "请先" in result
-
-    def test_ask_document_no_rag_chain(self, monkeypatch):
-        import streamlit as st
-        monkeypatch.setattr("src.agent_tools._get_doc_text", lambda: "doc text")
-        mock_engine = Mock()
-        mock_engine.rag_chain = None
-        with patch.dict(st.session_state, {"qa_engine": mock_engine}, clear=True):
-            result = ask_document.invoke({"question": "test"})
-            assert "尚未建立" in result
-
-    def test_summarize_no_document(self, monkeypatch):
-        monkeypatch.setattr("src.agent_tools._get_doc_text", lambda: "")
-        result = summarize_document.invoke({"style": "short"})
-        assert "请先" in result
-
-    def test_extract_info_no_document(self, monkeypatch):
-        monkeypatch.setattr("src.agent_tools._get_doc_text", lambda: "")
-        result = extract_info.invoke({"target": "keywords"})
-        assert "请先" in result
-
-    def test_translate_no_document(self, monkeypatch):
-        monkeypatch.setattr("src.agent_tools._get_doc_text", lambda: "")
-        result = translate_text.invoke({"text": "", "target_language": "English"})
-        assert "请提供" in result
-
-    def test_compare_no_documents(self, monkeypatch):
-        monkeypatch.setattr("src.agent_tools._get_doc_text", lambda: "")
-        monkeypatch.setattr("src.agent_tools._get_compare_text", lambda: "")
-        result = compare_documents.invoke({})
-        assert "需要两篇" in result
+def _event_text(events):
+    return "".join(event["content"] for event in events if event["type"] == "token")
 
 
 class TestAgentSession:
-    """Test AgentSession creation and ReAct loop."""
+    def test_session_builds_messages_without_marker_protocol_processing(self):
+        llm = FakeStructuredLLM(
+            AgentRoute(response="你好")
+        )
+        session = AgentSession(tools=[], llm=llm)
 
-    def test_session_creation(self):
-        mock_llm = _make_mock_llm()
-        session = AgentSession(tools=ALL_TOOLS, llm=mock_llm)
-        assert session.tool_map is not None
-        assert len(session.tool_map) == 7
+        messages = session._build_messages(
+            "继续",
+            [{"role": "assistant", "content": "保留这段 ⚙️TOOL: 普通文本"}],
+        )
 
-    def test_session_build_messages(self):
-        mock_llm = _make_mock_llm()
-        session = AgentSession(tools=ALL_TOOLS, llm=mock_llm)
-        msgs = session._build_messages("hello")
-        assert len(msgs) == 2
-        assert msgs[0].type == "system"
-        assert msgs[1].type == "human"
+        assert messages[1].content == "保留这段 ⚙️TOOL: 普通文本"
 
-    def test_session_execute_tool_not_found(self):
-        mock_llm = _make_mock_llm()
-        session = AgentSession(tools=ALL_TOOLS, llm=mock_llm)
-        result = session._execute_tool("nonexistent", {})
-        assert "未找到" in result
+    def test_structured_route_executes_tool_and_keeps_stream_event_contract(self):
+        calls = []
+        tool = _tool("summarize_document", "可靠摘要", calls)
+        llm = FakeStructuredLLM(
+            AgentRoute(
+                tool_calls=[
+                    ToolInvocation(
+                        name="summarize_document",
+                        arguments={"style": "short"},
+                    )
+                ]
+            )
+        )
+        session = AgentSession(tools=[tool], llm=llm)
 
-    def test_session_no_tool_calls(self):
-        """Agent responds with plain text (no tool calls)."""
-        mock_llm = _make_mock_llm(response_content="你好，我是AI助手。")
-        session = AgentSession(tools=ALL_TOOLS, llm=mock_llm)
-        events = list(session.stream("hello"))
-        event_types = {e["type"] for e in events}
-        assert "token" in event_types
-        assert "done" in event_types
-        tokens = [e["content"] for e in events if e["type"] == "token"]
-        assert "".join(tokens) == "你好，我是AI助手。"
+        events = list(session.stream("总结文档"))
 
-    def test_session_with_text_tool_calls(self):
-        """Agent correctly parses text-based tool calls."""
-        tool_call_text = _make_tool_call_text("summarize_document", style="short")
-        mock_llm = _make_mock_llm(response_content=tool_call_text)
+        assert llm.schema is AgentRoute
+        assert calls == [("summarize_document", {"style": "short"})]
+        assert [event["type"] for event in events] == [
+            "tool_start",
+            "tool_end",
+            "token",
+            "done",
+        ]
+        assert _event_text(events) == "可靠摘要"
 
-        import streamlit as st
-        with patch.dict(st.session_state, {
-            "current_document_text": "test content",
-            "summary_engine": Mock(generate_summary=Mock(return_value="文档摘要内容")),
-        }, clear=True):
-            session = AgentSession(tools=ALL_TOOLS, llm=mock_llm)
-            events = list(session.stream("总结文档"))
+    def test_multiple_structured_tool_calls_preserve_order_and_results(self):
+        calls = []
+        tools = [
+            _tool("analyze_structure", "结构结果", calls),
+            _tool("translate_text", "翻译结果", calls),
+        ]
+        llm = FakeStructuredLLM(
+            AgentRoute(
+                tool_calls=[
+                    ToolInvocation(name="analyze_structure"),
+                    ToolInvocation(
+                        name="translate_text",
+                        arguments={"text": "", "target_language": "English"},
+                    ),
+                ]
+            )
+        )
 
-        event_types = {e["type"] for e in events}
-        assert "tool_start" in event_types
-        assert "tool_end" in event_types
+        events = list(AgentSession(tools=tools, llm=llm).stream("分析后翻译"))
 
-    def test_stream_with_error(self):
-        mock_llm = _make_mock_llm()
+        assert [name for name, _ in calls] == ["analyze_structure", "translate_text"]
+        assert _event_text(events) == "结构结果\n\n翻译结果"
 
-        def _error_stream(_messages):
-            raise RuntimeError("API error")
-            yield  # Unreachable, makes it a generator
+    def test_direct_response_is_emitted_as_stream_tokens(self):
+        llm = FakeStructuredLLM(AgentRoute(response="你好，我可以分析文档。"))
 
-        mock_llm.stream = _error_stream
-        session = AgentSession(tools=ALL_TOOLS, llm=mock_llm)
-        events = list(session.stream("hello"))
-        event_types = {e["type"] for e in events}
-        assert "error" in event_types
+        events = list(AgentSession(tools=[], llm=llm).stream("你好"))
 
-    def test_stream_agent_convenience(self):
-        mock_llm = _make_mock_llm(response_content="Hello")
-        with patch("src.agent._build_llm_for_agent", return_value=mock_llm):
-            events = list(stream_agent("hi", []))
-            assert len(events) >= 1
+        assert _event_text(events) == "你好，我可以分析文档。"
+        assert events[-1] == {"type": "done"}
+
+    def test_document_qa_uses_streaming_handler_without_waiting_for_full_tool_result(self):
+        calls = []
+        tool = _tool("ask_document", "不应调用同步工具", calls)
+        llm = FakeStructuredLLM(
+            AgentRoute(
+                tool_calls=[ToolInvocation(name="ask_document", arguments={"question": "预算？"})]
+            )
+        )
+
+        def stream_document_answer(arguments):
+            assert arguments == {"question": "预算？"}
+            yield "第一段"
+            yield "第二段"
+
+        events = list(AgentSession(
+            tools=[tool],
+            llm=llm,
+            streaming_handlers={"ask_document": stream_document_answer},
+        ).stream("预算？"))
+
+        assert calls == []
+        assert _event_text(events) == "第一段第二段"
+        assert [event["type"] for event in events] == [
+            "tool_start", "token", "token", "tool_end", "done",
+        ]
+
+    def test_route_failure_falls_back_to_document_qa_tool(self):
+        calls = []
+        ask_tool = _tool("ask_document", "来自真实检索链的回答", calls)
+        llm = FakeStructuredLLM(error=ValueError("invalid structured output"))
+
+        events = list(AgentSession(tools=[ask_tool], llm=llm).stream("预算是多少？"))
+
+        assert calls == [("ask_document", {"question": "预算是多少？"})]
+        assert _event_text(events) == "来自真实检索链的回答"
+        assert any(event["type"] == "reasoning" for event in events)
+        assert not any(event["type"] == "error" for event in events)
+
+    def test_route_failure_without_qa_tool_reports_clear_error(self):
+        llm = FakeStructuredLLM(error=RuntimeError("provider rejected schema"))
+
+        events = list(AgentSession(tools=[], llm=llm).stream("你好"))
+
+        assert events == [{
+            "type": "error",
+            "content": "意图解析失败，请检查模型是否支持结构化输出及 API 配置。",
+        }]
+
+    def test_unknown_tool_is_reported_without_fabricated_result(self):
+        llm = FakeStructuredLLM(
+            AgentRoute(
+                tool_calls=[ToolInvocation(name="summarize_document")]
+            )
+        )
+
+        events = list(AgentSession(tools=[], llm=llm).stream("总结"))
+
+        assert events[0]["type"] == "error"
+        assert "summarize_document" in events[0]["content"]
+        assert not any(event["type"] == "token" for event in events)
+
+
+def test_stream_agent_convenience_uses_session_agent(monkeypatch):
+    llm = FakeStructuredLLM(AgentRoute(response="Hello"))
+    monkeypatch.setattr("src.agent._build_llm_for_agent", lambda: llm)
+
+    events = list(stream_agent("hi", []))
+
+    assert _event_text(events) == "Hello"

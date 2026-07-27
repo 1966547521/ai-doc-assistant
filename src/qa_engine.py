@@ -11,7 +11,6 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.outputs import ChatGenerationChunk
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnablePassthrough
 
 from src.cache_manager import SemanticCacheManager
 from src.prompt_manager import prompt_manager
@@ -34,6 +33,8 @@ class QAEngine:
         self._doc_snapshot: str = ""
         self.cache_manager = cache_manager or SemanticCacheManager()
         self._enhancer = None
+        self._last_retrieval_key: str = ""
+        self._last_retrieved_docs = []
 
     def _get_enhancer(self):
         """延迟初始化LLM增强器"""
@@ -81,15 +82,37 @@ class QAEngine:
 
         prompt = ChatPromptTemplate.from_template(template)
 
-        self.rag_chain = (
-            {"context": retriever, "question": RunnablePassthrough()}
-            | prompt
-            | self.llm
-            | StrOutputParser()
-        )
+        self.rag_chain = prompt | self.llm | StrOutputParser()
         self.retriever = retriever
         self._context_hash = None
         self._cached_questions = []
+
+    def _retrieve(self, question: str):
+        docs = self.retriever.invoke(question) if self.retriever else []
+        self._last_retrieval_key = question
+        self._last_retrieved_docs = docs
+        return docs
+
+    @staticmethod
+    def _format_context(docs) -> str:
+        return "\n\n".join(doc.page_content for doc in docs)
+
+    @staticmethod
+    def _build_citations(docs) -> List[Dict[str, object]]:
+        """Return only stable, user-visible source identifiers for retrieved chunks."""
+        citations = []
+        for doc in docs:
+            metadata = getattr(doc, "metadata", {}) or {}
+            if not isinstance(metadata, dict):
+                continue
+            citation = {
+                key: metadata[key]
+                for key in ("source_file", "page", "paragraph", "table", "row", "chunk_id")
+                if key in metadata
+            }
+            if citation:
+                citations.append(citation)
+        return citations
         
 
     def answer(self, question: str, chat_history: str = "", evaluate: bool = False) -> Dict[str, str | list | Dict]:
@@ -113,29 +136,34 @@ class QAEngine:
             return {"answer": "请输入有效的问题", "sources": [], "evaluation": None}
 
         try:
-            # Check cache first (exact + semantic)
-            context_hash = self._compute_context_hash()
-            cached_answer = self.cache_manager.get_qa_semantic(question, context_hash)
-            if cached_answer:
-                sources = self.get_sources(question, chat_history)
-                return {"answer": cached_answer, "sources": sources, "evaluation": None}
-
             full_question = question
             if chat_history:
                 full_question = f"历史对话:\n{chat_history}\n\n当前问题:\n{question}"
 
-            answer = self.rag_chain.invoke(full_question)
+            # Check cache first (exact + semantic)
+            context_hash = self._compute_context_hash()
+            cached_answer = self.cache_manager.get_qa_semantic(question, context_hash)
+            if cached_answer:
+                docs = self._retrieve(full_question)
+                return {
+                    "answer": cached_answer,
+                    "sources": [doc.page_content[:100] + "..." for doc in docs],
+                    "citations": self._build_citations(docs),
+                    "evaluation": None,
+                }
+
+            docs = self._retrieve(full_question)
+            context = self._format_context(docs)
+            answer = self.rag_chain.invoke(
+                {"context": context, "question": full_question}
+            )
 
             # Cache the result
             self.cache_manager.cache_qa(question, context_hash, answer)
             self._cached_questions.append(question)
 
-            sources = []
-            context = ""
-            if self.retriever:
-                docs = self.retriever.invoke(full_question)
-                sources = [doc.page_content[:100] + "..." for doc in docs]
-                context = "\n".join([doc.page_content[:300] for doc in docs])
+            sources = [doc.page_content[:100] + "..." for doc in docs]
+            citations = self._build_citations(docs)
 
             # LLM评估回答质量
             evaluation = None
@@ -143,7 +171,12 @@ class QAEngine:
                 enhancer = self._get_enhancer()
                 evaluation = enhancer.evaluate_answer(question, answer, context)
 
-            return {"answer": answer, "sources": sources, "evaluation": evaluation}
+            return {
+                "answer": answer,
+                "sources": sources,
+                "citations": citations,
+                "evaluation": evaluation,
+            }
         
         except Exception as e:
             logger.error(f"Error answering question: {str(e)}", exc_info=True)
@@ -201,7 +234,10 @@ class QAEngine:
             if chat_history:
                 full_question = f"历史对话:\n{chat_history}\n\n当前问题:\n{question}"
 
-            stream = self.rag_chain.stream(full_question)
+            docs = self._retrieve(full_question)
+            stream = self.rag_chain.stream(
+                {"context": self._format_context(docs), "question": full_question}
+            )
             full_answer = []
             for chunk in stream:
                 if isinstance(chunk, ChatGenerationChunk):
@@ -232,5 +268,24 @@ class QAEngine:
         if chat_history:
             full_question = f"历史对话:\n{chat_history}\n\n当前问题:\n{question}"
 
-        docs = self.retriever.invoke(full_question)
+        docs = (
+            self._last_retrieved_docs
+            if self._last_retrieval_key == full_question
+            else self._retrieve(full_question)
+        )
         return [doc.page_content[:100] + "..." for doc in docs]
+
+    def get_citations(self, question: str, chat_history: str = "") -> List[Dict[str, object]]:
+        """Return citations for the same retrieval used by the latest answer."""
+        if not self.retriever:
+            return []
+
+        full_question = question
+        if chat_history:
+            full_question = f"历史对话:\n{chat_history}\n\n当前问题:\n{question}"
+        docs = (
+            self._last_retrieved_docs
+            if self._last_retrieval_key == full_question
+            else self._retrieve(full_question)
+        )
+        return self._build_citations(docs)

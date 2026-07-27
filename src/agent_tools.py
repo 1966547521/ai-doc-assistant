@@ -11,8 +11,69 @@ from langchain_core.tools import tool
 
 
 def _get_doc_text() -> str:
-    """Safely get current document text from session state."""
-    return st.session_state.get("current_document_text", "")
+    """Safely get current document text, with multiple fallbacks."""
+    import streamlit as st
+    from src.logger import get_logger
+    _log = get_logger("agent_tools")
+
+    text = st.session_state.get("current_document_text", "")
+    _log.info("_get_doc_text: st.session_state.current_document_text len=%d, sid=%s",
+              len(text) if text else 0,
+              st.session_state.get("current_session_id"))
+    if text:
+        return text
+
+    sid = st.session_state.get("current_session_id")
+    if sid:
+        mgr = st.session_state.get("session_manager")
+        if mgr:
+            s = mgr.get_session_by_id(sid)
+            _log.info("_get_doc_text: session_manager.get_session_by_id(%s) -> %s, doc_len=%d",
+                      sid[:20] if sid else None,
+                      type(s).__name__ if s else None,
+                      len(s.document_text) if (s and s.document_text) else 0)
+            if s and s.document_text:
+                st.session_state.current_document_text = s.document_text
+                st.session_state.documents_uploaded = True
+                return s.document_text
+        else:
+            _log.warning("_get_doc_text: session_manager NOT in session_state")
+    else:
+        _log.warning("_get_doc_text: current_session_id is None")
+
+    if "current_session_id" not in st.session_state:
+        _log.warning("_get_doc_text: no current_session_id key in session_state")
+        if hasattr(st, "session_state"):
+            _log.info("session_state keys: %s", list(st.session_state.keys())[:20])
+
+    try:
+        vs = st.session_state.get("vector_store")
+        if vs:
+            try:
+                store = getattr(vs, "vector_store", None)
+                if store is not None:
+                    data = store.get()
+                    docs = data.get("documents", []) if isinstance(data, dict) else []
+                    if docs:
+                        joined = "\n\n".join(docs)
+                        _log.info("_get_doc_text: recovered %d chars from vector_store", len(joined))
+                        st.session_state.current_document_text = joined
+                        st.session_state.documents_uploaded = True
+                        return joined
+            except Exception as e:
+                _log.warning("_get_doc_text: vector_store recovery failed: %s", e)
+    except Exception:
+        pass
+
+    qa = st.session_state.get("qa_engine")
+    if qa and getattr(qa, "context_snapshot", None):
+        snap = qa.context_snapshot
+        _log.info("_get_doc_text: recovered %d chars from qa_engine.context_snapshot", len(snap))
+        st.session_state.current_document_text = snap
+        st.session_state.documents_uploaded = True
+        return snap
+
+    return ""
 
 
 def _get_compare_text() -> str:
@@ -23,6 +84,127 @@ def _get_compare_text() -> str:
 def _get_engine(name: str):
     """Safely get an engine from session state."""
     return st.session_state.get(name)
+
+
+def _format_qa_references(citations, sources) -> str:
+    """Format the retrieval evidence shared by sync and streaming Q&A."""
+    parts = []
+    if citations:
+        parts.append("\n\n---\n**📍 引用定位:**")
+        for citation in citations[:3]:
+            location = citation.get("source_file", "文档")
+            if "page" in citation:
+                location += f"，第 {citation['page']} 页"
+            elif "paragraph" in citation:
+                location += f"，第 {citation['paragraph']} 段"
+            elif "table" in citation and "row" in citation:
+                location += f"，表 {citation['table']} 第 {citation['row']} 行"
+            parts.append(f"- {location}")
+    if sources:
+        parts.append("\n\n---\n**📖 参考来源:**")
+        parts.extend(f"- {source}" for source in sources[:3])
+    return "\n".join(parts)
+
+
+def stream_document_answer(arguments):
+    """Yield real provider chunks for the RAG tool, followed by citations."""
+    question = str(arguments.get("question", "")).strip()
+    doc_text = _get_doc_text()
+    if not doc_text:
+        yield "⚠️ 请先在左侧侧边栏上传文档并点击「开始处理」。"
+        return
+
+    engine = _get_engine("qa_engine")
+    if not engine or not engine.rag_chain:
+        yield "⚠️ 文档索引尚未建立，请先在左侧侧边栏点击「开始处理」上传并索引文档。"
+        return
+
+    try:
+        yield from engine.stream_answer(question)
+        citations = engine.get_citations(question)
+        sources = engine.get_sources(question)
+        references = _format_qa_references(citations, sources)
+        if references:
+            yield references
+    except Exception as exc:
+        yield f"❌ 问答出错: {exc}"
+
+
+def stream_summary_document(arguments):
+    """Yield real LLM deltas for document summaries without a rewrite pass."""
+    doc_text = _get_doc_text()
+    if not doc_text:
+        yield "⚠️ 请先在左侧侧边栏上传文档并点击「开始处理」。"
+        return
+
+    engine = _get_engine("summary_engine")
+    if not engine:
+        yield "⚠️ 摘要引擎未初始化。"
+        return
+
+    style = arguments.get("style", "short")
+    streamers = {
+        "bullet": ("**📋 要点摘要:**\n\n", engine.stream_bullet_summary),
+        "executive": ("**📊 执行摘要:**\n\n", engine.stream_executive_summary),
+        "qa": ("**❓ 问答式摘要:**\n\n", engine.stream_summary_with_questions),
+        "detailed": ("**📝 详细摘要:**\n\n", lambda text: engine.stream_summary(text, length="detailed")),
+        "short": ("**📝 摘要:**\n\n", lambda text: engine.stream_summary(text, length="short")),
+    }
+    prefix, streamer = streamers.get(style, streamers["short"])
+    yield prefix
+    try:
+        yield from streamer(doc_text)
+    except Exception as exc:
+        yield f"❌ 摘要生成出错: {exc}"
+
+
+def stream_translate_document(arguments):
+    """Yield real LLM deltas for a translation request."""
+    text = str(arguments.get("text", ""))
+    if not text:
+        text = _get_doc_text()
+    if not text:
+        yield "⚠️ 请提供要翻译的文本，或先上传文档。"
+        return
+
+    target_language = str(arguments.get("target_language", "English"))
+    lang_map = {
+        "中文": "zh", "English": "en", "日本語": "ja", "한국어": "ko",
+        "Français": "fr", "Deutsch": "de", "Español": "es", "Русский": "ru",
+    }
+    translator = _get_engine("translation_engine")
+    if not translator:
+        yield "⚠️ 翻译引擎未初始化。"
+        return
+
+    yield f"**🌍 翻译结果 ({target_language}):**\n\n"
+    try:
+        yield from translator.stream_translate(text, target_lang=lang_map.get(target_language, "en"))
+    except Exception as exc:
+        yield f"❌ 翻译出错: {exc}"
+
+
+def stream_generate_report(arguments):
+    """Stream report prose while preserving explicit progress for rule-based work."""
+    doc_text = _get_doc_text()
+    if not doc_text:
+        yield "⚠️ 请先在左侧侧边栏上传文档并点击「开始处理」。"
+        return
+
+    generator = _get_engine("report_generator")
+    if not generator:
+        yield "⚠️ 报告引擎未初始化。"
+        return
+
+    format_type = arguments.get("format_type", "markdown")
+    template = arguments.get("template", "standard")
+    try:
+        if format_type == "text":
+            yield from generator.stream_generate_full_report(doc_text)
+        else:
+            yield from generator.stream_generate_markdown_report(doc_text, template=template)
+    except Exception as exc:
+        yield f"❌ 报告生成出错: {exc}"
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -48,13 +230,9 @@ def ask_document(question: str) -> str:
         result = engine.answer(question)
         answer = result.get("answer", "无法获取回答")
         sources = result.get("sources", [])
+        citations = result.get("citations", [])
 
-        parts = [answer]
-        if sources:
-            parts.append("\n\n---\n**📖 参考来源:**")
-            for s in sources[:3]:
-                parts.append(f"- {s}")
-        return "\n".join(parts)
+        return answer + _format_qa_references(citations, sources)
     except Exception as e:
         return f"❌ 问答出错: {str(e)}"
 
@@ -189,7 +367,7 @@ def extract_info(target: str = "keywords") -> str:
             items = extractor.extract_topics(doc_text, max_topics=5)
             if not items:
                 return "🏷️ 未检测到明确主题。"
-            return f"**🏷️ 主要主题:**\n" + "\n".join(f"- {t}" for t in items)
+            return "**🏷️ 主要主题:**\n" + "\n".join(f"- {t}" for t in items)
         else:
             items = extractor.extract_key_terms(doc_text, max_terms=10)
             if not items:
@@ -324,3 +502,10 @@ ALL_TOOLS = [
     generate_report,
     compare_documents,
 ]
+
+STREAMING_TOOL_HANDLERS = {
+    "ask_document": stream_document_answer,
+    "summarize_document": stream_summary_document,
+    "translate_text": stream_translate_document,
+    "generate_report": stream_generate_report,
+}

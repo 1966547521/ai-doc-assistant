@@ -17,15 +17,17 @@ env/
 .vscode/
 .idea/
 
-# Vector database
-chroma_db/
+# Runtime artifacts
+data/
 *.sqlite3
 
-# Cache
-cache/
+# Local model artifacts
+models/
 *.bin
 
-# Logs
+# Legacy runtime paths
+chroma_db/
+cache/
 logs/
 *.log
 

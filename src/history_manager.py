@@ -6,6 +6,8 @@ import time
 from dataclasses import dataclass, asdict
 from typing import List, Optional
 
+from src.runtime_paths import HISTORY_FILE, ensure_runtime_directories
+
 
 @dataclass
 class DocumentHistoryEntry:
@@ -42,7 +44,8 @@ class DocumentHistoryEntry:
 class HistoryManager:
     """Manages document processing history."""
     
-    def __init__(self, history_file: str = "history.json"):
+    def __init__(self, history_file: str = str(HISTORY_FILE)):
+        ensure_runtime_directories()
         self.history_file = history_file
         self.history: List[DocumentHistoryEntry] = []
         self._load_history()
@@ -66,11 +69,12 @@ class HistoryManager:
         except IOError:
             pass
     
-    def add_entry(self, filename: str, file_path: str, file_size: int, 
-                  word_count: int, chunk_count: int, tags: List[str] = None) -> None:
+    def add_entry(self, filename: str, file_path: str, file_size: int,
+                  word_count: int, chunk_count: int, tags: List[str] = None,
+                  entry_id: Optional[str] = None) -> None:
         """Add a new entry to history."""
         entry = DocumentHistoryEntry(
-            id=f"{int(time.time())}_{hashlib.sha256(filename.encode()).hexdigest()[:8]}",
+            id=entry_id or f"{int(time.time())}_{hashlib.sha256(filename.encode()).hexdigest()[:8]}",
             filename=filename,
             file_path=file_path,
             processed_at=time.time(),

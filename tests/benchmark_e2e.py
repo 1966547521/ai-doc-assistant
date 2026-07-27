@@ -22,7 +22,7 @@ from src.document_processor import DocumentProcessor
 from src.vector_store import VectorStoreManager
 from src.qa_engine import QAEngine
 from src.cache_manager import SemanticCacheManager
-from src.agent import AgentSession, _parse_tool_calls
+from src.agent import AgentSession
 from src.agent_tools import ALL_TOOLS  # type: ignore
 from src.utils import get_llm
 
@@ -219,21 +219,20 @@ def bench_agent_reliability(vs):
         try:
             agent = AgentSession(tools=ALL_TOOLS, llm=llm)
             messages = agent._build_messages(task)
-            response = llm.invoke(messages)
-            content = response.content if hasattr(response, "content") else str(response)
-            tool_calls = _parse_tool_calls(content)
+            route = agent._route(messages)
+            tool_calls = route.tool_calls
 
             if tool_calls:
                 parse_ok += 1
                 tc = tool_calls[0]
-                tool_name = tc["name"]
+                tool_name = tc.name
                 tool = agent.tool_map.get(tool_name)
                 if tool:
                     try:
                         with patch("src.agent_tools._get_doc_text", return_value=doc_text), \
                              patch("src.agent_tools._get_compare_text", return_value=""), \
                              patch("src.agent_tools._get_engine", side_effect=engines.get):
-                            tool.invoke(tc["args"])
+                            tool.invoke(tc.arguments)
                             execute_ok += 1
                             status = "OK"
                     except Exception as e:

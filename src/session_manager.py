@@ -6,6 +6,8 @@ import time
 from dataclasses import dataclass, asdict
 from typing import Dict, List, Optional, Any
 
+from src.runtime_paths import SESSIONS_FILE, ensure_runtime_directories
+
 
 @dataclass
 class SessionEntry:
@@ -56,7 +58,8 @@ class SessionEntry:
 class SessionManager:
     """Manages conversation sessions."""
     
-    def __init__(self, sessions_file: str = "sessions.json"):
+    def __init__(self, sessions_file: str = str(SESSIONS_FILE)):
+        ensure_runtime_directories()
         self.sessions_file = sessions_file
         self.sessions: List[SessionEntry] = []
         self._index: Dict[str, SessionEntry] = {}

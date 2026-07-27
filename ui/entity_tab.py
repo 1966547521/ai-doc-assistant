@@ -25,8 +25,9 @@ def render_entity_tab():
     with col1:
         if st.button("提取关键词"):
             with st.spinner("提取中..."):
-                extractor = st.session_state.keyword_extractor
-                text = st.session_state.current_document_text
+                service = st.session_state.application_service
+                extractor = service.keyword_extractor
+                text = service.document_text
                 stream = extractor.stream_extract_key_terms(text)
                 st.session_state.extraction_results["关键词"] = "".join(stream)
                 _save_extraction()
@@ -34,16 +35,18 @@ def render_entity_tab():
     with col2:
         if st.button("提取行动项"):
             with st.spinner("提取中..."):
-                extractor = st.session_state.keyword_extractor
-                text = st.session_state.current_document_text
+                service = st.session_state.application_service
+                extractor = service.keyword_extractor
+                text = service.document_text
                 stream = extractor.stream_extract_actions(text)
                 st.session_state.extraction_results["行动项"] = "".join(stream)
                 _save_extraction()
 
     if st.button("提取主题"):
         with st.spinner("提取中..."):
-            extractor = st.session_state.keyword_extractor
-            text = st.session_state.current_document_text
+            service = st.session_state.application_service
+            extractor = service.keyword_extractor
+            text = service.document_text
             stream = extractor.stream_extract_topics(text)
             st.session_state.extraction_results["主题"] = "".join(stream)
             _save_extraction()

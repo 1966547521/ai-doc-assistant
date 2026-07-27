@@ -1,7 +1,5 @@
 """Analysis endpoints wrapping existing engine layer."""
 
-import hashlib
-
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.schemas import (
@@ -13,87 +11,67 @@ from api.schemas import (
     CompareRequest, CompareResponse,
     ReportRequest, ReportResponse,
 )
-from api.dependencies import require_auth, get_cache_manager
-from src.summary_engine import SummaryEngine
-from src.qa_engine import QAEngine
-from src.structure_analyzer import StructureAnalyzer
-from src.keyword_extractor import KeywordExtractor
-from src.translation_engine import TranslationEngine
-from src.document_comparer import DocumentComparer
-from src.report_generator import ReportGenerator
+from api.dependencies import get_application_service, get_document_service, require_auth
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
 
 
 def _get_summary_engine():
-    return SummaryEngine()
-
-
-def _get_qa_engine():
-    return QAEngine(cache_manager=get_cache_manager())
+    return get_application_service().summary_engine
 
 
 def _get_structure_analyzer():
-    return StructureAnalyzer()
+    return get_application_service().structure_analyzer
 
 
 def _get_keyword_extractor():
-    return KeywordExtractor()
+    return get_application_service().keyword_extractor
 
 
 def _get_translation_engine():
-    return TranslationEngine()
+    return get_application_service().translation_engine
 
 
 def _get_document_comparer():
-    return DocumentComparer()
+    return get_application_service().document_comparer
 
 
 def _get_report_generator():
-    return ReportGenerator()
+    return get_application_service().report_generator
 
 
 @router.post("/summary", response_model=SummaryResponse, dependencies=[Depends(require_auth)])
 def generate_summary(body: SummaryRequest):
     engine = _get_summary_engine()
-    result = engine.summarize(
-        text=body.text,
-        summary_type=body.summary_type,
-        language=body.language,
-        stream=False,
-    )
-    summary = result.get("summary", "") if isinstance(result, dict) else str(result)
+    if body.summary_type == "bullet":
+        summary = engine.generate_bullet_summary(body.text)
+    elif body.summary_type == "executive":
+        summary = engine.generate_executive_summary(body.text)
+    elif body.summary_type == "qa":
+        summary = engine.generate_summary_with_questions(body.text)
+    else:
+        summary = engine.generate_summary(body.text, length=body.summary_type)
     return SummaryResponse(summary=summary, summary_type=body.summary_type)
 
 
 @router.post("/qa", response_model=QAResponse, dependencies=[Depends(require_auth)])
 def ask_question(body: QARequest):
-    engine = _get_qa_engine()
-    context = body.context or ""
-    context_hash = hashlib.sha256(context.encode()).hexdigest()[:16] if context else "no_context"
-
-    cache_mgr = get_cache_manager()
-    cached = cache_mgr.get_qa_semantic(body.question, context_hash)
-    if cached:
-        return QAResponse(answer=cached, question=body.question, cached=True)
-
-    if context:
-        engine.load_document(context)
-
-    result = engine.ask(
+    try:
+        result = get_document_service().ask(body.document_id, body.question)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Document not found") from exc
+    return QAResponse(
+        answer=str(result.get("answer", "")),
         question=body.question,
-        context=context,
-        stream=False,
+        sources=result.get("sources", []),
+        citations=result.get("citations", []),
     )
-    answer = result.get("answer", "") if isinstance(result, dict) else str(result)
-    cache_mgr.cache_qa(body.question, context_hash, answer)
-    return QAResponse(answer=answer, question=body.question, cached=False)
 
 
 @router.post("/structure", response_model=StructureResponse, dependencies=[Depends(require_auth)])
 def analyze_structure(body: StructureRequest):
     engine = _get_structure_analyzer()
-    result = engine.analyze(body.text)
+    result = engine.analyze_document(body.text)
     sections = [
         SectionInfo(
             title=s.get("title", ""),
@@ -105,7 +83,7 @@ def analyze_structure(body: StructureRequest):
         for s in result.get("sections", [])
     ]
     return StructureResponse(
-        document_type=result.get("document_type", "unknown"),
+        document_type=result.get("doc_type", "unknown"),
         title=result.get("title"),
         total_sections=len(sections),
         sections=sections,
@@ -116,23 +94,18 @@ def analyze_structure(body: StructureRequest):
 @router.post("/keywords", response_model=KeywordsResponse, dependencies=[Depends(require_auth)])
 def extract_keywords(body: KeywordsRequest):
     engine = _get_keyword_extractor()
-    result = engine.extract(body.text)
     return KeywordsResponse(
-        keywords=result.get("keywords", []),
-        action_items=result.get("action_items", []),
-        topics=result.get("topics", []),
+        keywords=engine.extract_key_terms(body.text),
+        action_items=engine.extract_actions(body.text),
+        topics=engine.extract_topics(body.text),
     )
 
 
 @router.post("/translate", response_model=TranslateResponse, dependencies=[Depends(require_auth)])
 def translate_text(body: TranslateRequest):
     engine = _get_translation_engine()
-    result = engine.translate(
-        text=body.text,
-        target_language=body.target_language,
-        stream=False,
-    )
-    translated = result.get("translated_text", "") if isinstance(result, dict) else str(result)
+    result = engine.translate(text=body.text, target_lang=body.target_language)
+    translated = result.get("translation", "") if isinstance(result, dict) else str(result)
     return TranslateResponse(
         translated_text=translated,
         source_length=len(body.text),
@@ -144,11 +117,11 @@ def translate_text(body: TranslateRequest):
 @router.post("/compare", response_model=CompareResponse, dependencies=[Depends(require_auth)])
 def compare_documents(body: CompareRequest):
     engine = _get_document_comparer()
-    result = engine.compare(body.text1, body.text2)
+    result = engine.compare_texts(body.text1, body.text2)
     return CompareResponse(
-        similarity_score=result.get("similarity_score", 0.0),
-        html_diff=result.get("html_diff", ""),
-        common_sections=result.get("common_sections", []),
+        similarity_score=float(result.get("similarity", 0.0)),
+        html_diff="",
+        common_sections=[],
         stats=result.get("stats", {}),
     )
 
@@ -156,9 +129,5 @@ def compare_documents(body: CompareRequest):
 @router.post("/report", response_model=ReportResponse, dependencies=[Depends(require_auth)])
 def generate_report(body: ReportRequest):
     engine = _get_report_generator()
-    result = engine.generate(
-        text=body.text,
-        template=body.template,
-    )
-    markdown = result.get("markdown", "") if isinstance(result, dict) else str(result)
+    markdown = engine.generate_markdown_report(body.text, template=body.template)
     return ReportResponse(markdown=markdown, template=body.template)

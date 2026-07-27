@@ -1,6 +1,5 @@
 """Pydantic schemas for FastAPI request/response models."""
 
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
@@ -52,7 +51,7 @@ class SummaryResponse(BaseModel):
 
 class QARequest(BaseModel):
     question: str = Field(..., min_length=1)
-    context: Optional[str] = Field(None, description="Optional document context text")
+    document_id: str = Field(..., min_length=1)
     session_id: Optional[str] = None
 
 
@@ -60,6 +59,8 @@ class QAResponse(BaseModel):
     answer: str
     question: str
     cached: bool = False
+    sources: List[str] = Field(default_factory=list)
+    citations: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class StructureRequest(BaseModel):

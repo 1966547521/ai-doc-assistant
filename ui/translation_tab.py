@@ -64,8 +64,9 @@ def _do_translation(target_lang, translate_mode, paragraph_text, detect_lang):
         st.warning("请输入要翻译的文本")
         return
 
-    translator = st.session_state.translation_engine
-    text_to_translate = paragraph_text if (translate_mode == "段落翻译" and paragraph_text) else st.session_state.current_document_text
+    service = st.session_state.application_service
+    translator = service.translation_engine
+    text_to_translate = paragraph_text if (translate_mode == "段落翻译" and paragraph_text) else service.document_text
 
     # ── Language detection (cached per text) ──
     if detect_lang and text_to_translate.strip():

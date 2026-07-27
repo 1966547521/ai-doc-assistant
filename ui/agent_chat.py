@@ -4,8 +4,6 @@ st.write_stream sends each yielded string as a separate frontend delta,
 achieving real character-by-character streaming in the browser.
 Tool calls render in a separate status container.
 """
-import time
-
 import streamlit as st
 from src.agent import stream_agent
 from src.logger import get_logger
@@ -82,6 +80,26 @@ def render_agent_chat():
             """)
         return
 
+    if not st.session_state.current_document_text:
+        sid = st.session_state.get("current_session_id")
+        logger.info("agent_chat recovery: current_document_text empty, sid=%s", sid)
+        if sid:
+            mgr = st.session_state.get("session_manager")
+            if mgr:
+                s = mgr.get_session_by_id(sid)
+                logger.info("agent_chat recovery: session=%s, doc_len=%d",
+                            type(s).__name__ if s else None,
+                            len(s.document_text) if (s and s.document_text) else 0)
+                if s and s.document_text:
+                    st.session_state.current_document_text = s.document_text
+            else:
+                logger.warning("agent_chat recovery: session_manager not in session_state")
+        else:
+            logger.warning("agent_chat recovery: current_session_id is None")
+        if not st.session_state.current_document_text:
+            st.warning("文档状态异常，请重新上传文档并点击「开始处理」。")
+            return
+
     _restore_messages()
     msg_key = _messages_key()
 
@@ -136,7 +154,6 @@ def render_agent_chat():
                 """Generator that yields text tokens for st.write_stream."""
                 nonlocal tool_events
                 tool_badges = []
-                token_buffer = []
                 for event in stream_agent(query, chat_history, session_id=sid):
                     etype = event.get("type", "")
 
@@ -163,19 +180,16 @@ def render_agent_chat():
                         tool_badges = [b.replace("active", "done") for b in tool_badges]
 
                     elif etype == "token":
-                        # Batch 20 chars to minimize re-renders (prevents scroll bounce)
-                        token_buffer.append(event.get("content", ""))
-                        if len(token_buffer) >= 20:
-                            yield "".join(token_buffer)
-                            token_buffer.clear()
+                        # Forward each provider delta immediately.  Buffering by
+                        # event count delayed short answers and hid live output.
+                        content = event.get("content", "")
+                        if content:
+                            yield content
 
                     elif etype == "error":
                         yield f"\n\n❌ {event['content']}"
 
                     elif etype == "done":
-                        if token_buffer:
-                            yield "".join(token_buffer)
-                            token_buffer.clear()
                         reasoning_placeholder.empty()
                         if tool_badges:
                             tool_status.markdown(

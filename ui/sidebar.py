@@ -1,8 +1,10 @@
 ﻿"""Sidebar components for AI Document Assistant."""
+import hashlib
 import os
 import tempfile
 import streamlit as st
 from src.document_processor import DocumentProcessor
+from src.vector_store import VectorStoreManager
 from src.prompt_manager import prompt_manager
 from src.logger import get_logger
 from ui.utils import restore_session_content
@@ -104,7 +106,7 @@ def _handle_processing(uploaded_files, use_incremental):
     total_steps = len(uploaded_files) + 3
     current_step = 0
 
-    processor = DocumentProcessor()
+    processor = DocumentProcessor(enable_semantic_chunking=True)
     all_documents = []
     full_text = ""
 
@@ -113,31 +115,43 @@ def _handle_processing(uploaded_files, use_incremental):
         status_text.text(f"📄 正在读取文件: {file.name}")
         progress_bar.progress(current_step / total_steps)
 
+        temp_path = None
         try:
             with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{file.name}", dir=".") as tmp:
                 tmp.write(file.getbuffer())
                 temp_path = tmp.name
 
-            text = processor.read_document(temp_path)
-            full_text += text + "\n\n"
-            documents = processor.split_text(text)
-            all_documents.extend(documents)
-
-            os.unlink(temp_path)
+            processed = processor.process_document(temp_path)
+            full_text += processed["text"] + "\n\n"
+            all_documents.extend(processed["chunks"])
 
         except Exception as e:
             logger.error(f"Error processing file {file.name}: {str(e)}", exc_info=True)
             st.error(f"处理文件 {file.name} 时出错: {str(e)}")
             continue
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                os.unlink(temp_path)
 
     current_step += 1
     status_text.text("🔄 正在向量化文档...")
     progress_bar.progress(current_step / total_steps)
 
     st.session_state.current_document_text = full_text
+
+    if not full_text.strip():
+        st.error("所有文件处理失败，未能提取到文本内容。请检查文件格式是否正确。")
+        st.session_state.documents_uploaded = False
+        return
+    index_id = hashlib.sha256(full_text.encode("utf-8")).hexdigest()
+    st.session_state.application_service.set_document(
+        full_text, document_id=index_id
+    )
     st.session_state.documents_uploaded = True
 
     try:
+        if st.session_state.vector_store.index_id != index_id:
+            st.session_state.vector_store = VectorStoreManager(index_id=index_id)
         # Use batched processing with per-chunk progress for large documents
         total_chunks = len(all_documents)
         if total_chunks > 20:
@@ -176,7 +190,7 @@ def _handle_processing(uploaded_files, use_incremental):
     progress_bar.progress(current_step / total_steps)
 
     try:
-        analyzer = st.session_state.structure_analyzer
+        analyzer = st.session_state.application_service.structure_analyzer
         st.session_state.analysis_results = analyzer.analyze_document(full_text)
 
     except Exception as e:
@@ -228,6 +242,7 @@ def _handle_clear_index():
     st.session_state.memory_manager.clear_history()
     st.session_state.documents_uploaded = False
     st.session_state.current_document_text = ""
+    st.session_state.application_service.clear_document()
     st.session_state.analysis_results = {}
     st.session_state.current_session_id = None
     # Clear generated results
@@ -329,6 +344,7 @@ def _render_session_history():
         st.session_state.current_session_id = None
         st.session_state.documents_uploaded = False
         st.session_state.current_document_text = ""
+        st.session_state.application_service.clear_document()
         st.session_state.analysis_results = {}
         st.session_state.memory_manager.clear_history()
         st.session_state.vector_store.clear_store()
@@ -347,6 +363,7 @@ def _on_delete(session_id: str, session_name: str):
         st.session_state.current_session_id = None
         st.session_state.documents_uploaded = False
         st.session_state.current_document_text = ""
+        st.session_state.application_service.clear_document()
         st.session_state.analysis_results = {}
         st.session_state.memory_manager.clear_history()
         st.session_state.vector_store.clear_store()
@@ -375,6 +392,10 @@ def _restore_session(session):
     """Restore a previous session — re-indexes docs and loads all generated content."""
     st.session_state.current_session_id = session.id
     st.session_state.current_document_text = session.document_text
+    st.session_state.application_service.set_document(
+        session.document_text,
+        document_id=hashlib.sha256(session.document_text.encode("utf-8")).hexdigest(),
+    )
     st.session_state.analysis_results = session.analysis_results
 
     processor = DocumentProcessor()

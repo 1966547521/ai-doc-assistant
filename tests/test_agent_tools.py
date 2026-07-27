@@ -3,7 +3,9 @@ from unittest.mock import Mock, patch, MagicMock
 
 from src.agent_tools import (
     ask_document, summarize_document, analyze_structure,
-    extract_info, translate_text, generate_report, compare_documents,
+    extract_info, translate_text, generate_report, compare_documents, stream_document_answer,
+    stream_summary_document, stream_translate_document, stream_generate_report,
+    STREAMING_TOOL_HANDLERS,
     ALL_TOOLS,
 )
 
@@ -80,6 +82,59 @@ class TestAskDocument:
         with _patch_helpers(doc_text="doc content", engines={"qa_engine": qa}):
             result = ask_document.invoke({"question": "q"})
         assert "API挂了" in result
+
+    def test_streaming_answer_forwards_provider_chunks_and_appends_references(self):
+        qa = _mock_engine("qa_engine", rag_chain=Mock())
+        qa.stream_answer.return_value = iter(["第一段", "第二段"])
+        qa.get_citations.return_value = [{"source_file": "演示.pdf", "page": 2}]
+        qa.get_sources.return_value = ["检索片段"]
+
+        with _patch_helpers(doc_text="doc content", engines={"qa_engine": qa}):
+            chunks = list(stream_document_answer({"question": "测试问题"}))
+
+        assert chunks[:2] == ["第一段", "第二段"]
+        assert "第 2 页" in chunks[-1]
+        assert "检索片段" in chunks[-1]
+        qa.stream_answer.assert_called_once_with("测试问题")
+
+
+class TestStreamingAgentTools:
+    def test_summary_handler_forwards_engine_deltas(self):
+        engine = _mock_engine("summary_engine")
+        engine.stream_bullet_summary.return_value = iter(["- 第一项", "\n- 第二项"])
+
+        with _patch_helpers(doc_text="doc content", engines={"summary_engine": engine}):
+            chunks = list(stream_summary_document({"style": "bullet"}))
+
+        assert chunks == ["**📋 要点摘要:**\n\n", "- 第一项", "\n- 第二项"]
+        engine.stream_bullet_summary.assert_called_once_with("doc content")
+
+    def test_translation_handler_forwards_engine_deltas(self):
+        engine = _mock_engine("translation_engine")
+        engine.stream_translate.return_value = iter(["Hello", " world"])
+
+        with _patch_helpers(doc_text="中文原文", engines={"translation_engine": engine}):
+            chunks = list(stream_translate_document({"text": "", "target_language": "English"}))
+
+        assert chunks == ["**🌍 翻译结果 (English):**\n\n", "Hello", " world"]
+        engine.stream_translate.assert_called_once_with("中文原文", target_lang="en")
+
+    def test_report_handler_forwards_markdown_deltas(self):
+        engine = _mock_engine("report_generator")
+        engine.stream_generate_markdown_report.return_value = iter(["# 报告", "\n内容"])
+
+        with _patch_helpers(doc_text="doc content", engines={"report_generator": engine}):
+            chunks = list(stream_generate_report({"format_type": "markdown", "template": "standard"}))
+
+        assert chunks == ["# 报告", "\n内容"]
+        engine.stream_generate_markdown_report.assert_called_once_with(
+            "doc content", template="standard"
+        )
+
+    def test_streaming_handler_registry_covers_all_llm_generation_tools(self):
+        assert set(STREAMING_TOOL_HANDLERS) == {
+            "ask_document", "summarize_document", "translate_text", "generate_report"
+        }
 
 
 # ── 2. summarize_document ────────────────────────────────────────────

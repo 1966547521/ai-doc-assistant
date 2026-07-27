@@ -10,6 +10,7 @@ from langchain_chroma import Chroma
 from langchain_core.documents import Document
 
 from src.utils import get_embeddings
+from src.runtime_paths import CHROMA_DIR, ensure_runtime_directories
 
 logger = logging.getLogger(__name__)
 
@@ -17,12 +18,25 @@ logger = logging.getLogger(__name__)
 class VectorStoreManager:
     """Manages the vector database with incremental updates and deduplication."""
 
-    def __init__(self, persist_directory: str = "./chroma_db"):
+    def __init__(
+        self,
+        persist_directory: str = str(CHROMA_DIR),
+        index_id: str = "default",
+        embeddings=None,
+    ):
+        ensure_runtime_directories()
         self.persist_directory = persist_directory
-        self._embeddings = None
+        self.index_id = index_id
+        self.collection_name = self.collection_name_for(index_id)
+        self._embeddings = embeddings
         self.vector_store: Optional[Chroma] = None
         self._document_ids: Set[str] = set()
         self._load_document_ids()
+
+    @staticmethod
+    def collection_name_for(index_id: str) -> str:
+        """Create a Chroma-safe collection name without exposing document names."""
+        return f"document_{hashlib.sha256(index_id.encode('utf-8')).hexdigest()[:24]}"
 
     @property
     def embeddings(self):
@@ -53,7 +67,9 @@ class VectorStoreManager:
     def init_store(self) -> None:
         """Initialize or load the vector store."""
         self.vector_store = Chroma(
-            embedding_function=self.embeddings, persist_directory=self.persist_directory
+            collection_name=self.collection_name,
+            embedding_function=self.embeddings,
+            persist_directory=self.persist_directory,
         )
         self._load_document_ids()
 
@@ -65,8 +81,9 @@ class VectorStoreManager:
 
                 client = chromadb.PersistentClient(path=self.persist_directory)
                 collections = client.list_collections()
-                if collections:
-                    sample = collections[0].get(limit=1, include=["embeddings"])
+                collection = next((item for item in collections if item.name == self.collection_name), None)
+                if collection:
+                    sample = collection.get(limit=1, include=["embeddings"])
                     if sample:
                         embeddings = sample.get("embeddings")
                         if embeddings is not None and len(embeddings) > 0:
@@ -106,10 +123,9 @@ class VectorStoreManager:
             self.init_store()
 
         if not self._check_dimension():
-            logger.warning("Dimension mismatch detected! Recreating vector store...")
-            self._recreate_store()
-            if not self.vector_store:
-                self.init_store()
+            raise RuntimeError(
+                "当前 Embedding 模型与已有索引不兼容；请使用新的文档索引，而不是覆盖旧索引。"
+            )
 
         added = 0
         skipped = 0
@@ -139,14 +155,9 @@ class VectorStoreManager:
 
             except (RuntimeError, ValueError) as e:
                 if "dimension" in str(e).lower():
-                    logger.warning("Dimension error detected (%s), recreating store...", e)
-                    self._recreate_store()
-                    self.init_store()
-                    if self.vector_store:
-                        self.vector_store.add_documents(filtered_docs)
-                        added = len(filtered_docs)
-                        for doc in filtered_docs:
-                            self._document_ids.add(doc.metadata["content_hash"])
+                    raise RuntimeError(
+                        "Embedding 维度不兼容；已保留原索引，请创建新的文档索引。"
+                    ) from e
                 else:
                     raise
 
@@ -242,7 +253,7 @@ class VectorStoreManager:
             return 0
 
     @staticmethod
-    def create_with_fallback(persist_directory: str = "./chroma_db"):
+    def create_with_fallback(persist_directory: str = str(CHROMA_DIR)):
         """Create VectorStoreManager with fallback to local embeddings."""
         try:
             return VectorStoreManager(persist_directory)

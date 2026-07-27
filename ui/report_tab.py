@@ -93,8 +93,9 @@ def render_report_tab():
     if not generate:
         return
 
-    generator = st.session_state.report_generator
-    text = st.session_state.current_document_text
+    service = st.session_state.application_service
+    generator = service.report_generator
+    text = service.document_text
     enhance = template == "detailed"
 
     # ── Stage 1: Stats ──

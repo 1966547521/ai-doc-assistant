@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from src.document_processor import DocumentProcessor, clean_text
+from src.document_processor import DocumentProcessor, SourceBlock, clean_text
 
 
 SAMPLE_DIR = Path(__file__).parent / "sample_docs"
@@ -75,6 +75,10 @@ class TestCleanText:
         assert "Hello" in result
         assert "World" in result
 
+    def test_preserves_chinese_punctuation(self):
+        text = "第一段：可靠问答。第二段（含注释），仍应保留！"
+        assert clean_text(text) == text
+
 
 # ── DocumentProcessor with sample files ────────────────────────────────
 
@@ -101,6 +105,16 @@ class TestDocumentProcessorFiles:
         pdf_path.write_bytes(MINIMAL_PDF)
         text = proc.read_pdf(str(pdf_path))
         assert "Hello PDF" in text
+
+    def test_read_pdf_source_blocks_include_page_number(self, proc, tmp_path):
+        pdf_path = tmp_path / "test.pdf"
+        pdf_path.write_bytes(MINIMAL_PDF)
+
+        blocks = proc.read_source_blocks(str(pdf_path))
+
+        assert len(blocks) == 1
+        assert blocks[0].text == "Hello PDF"
+        assert blocks[0].metadata == {"page": 1}
 
     def test_read_docx(self, proc):
         path = str(SAMPLE_DIR / "sample_zh.docx")
@@ -194,6 +208,9 @@ class TestProcessDocument:
         assert result["format"] == "TXT"
         assert result["char_count"] > 0
         assert result["chunk_count"] > 0
+        assert result["chunks"][0].metadata["source_file"] == "sample_zh.txt"
+        assert result["chunks"][0].metadata["document_id"]
+        assert path not in result["chunks"][0].metadata["document_id"]
 
     def test_process_docx(self, proc):
         path = str(SAMPLE_DIR / "sample_zh.docx")
@@ -228,6 +245,21 @@ class TestSplitText:
         chunks = proc.split_text(chinese)
         assert len(chunks) > 1
         assert any("测试文档" in c.page_content for c in chunks)
+
+    def test_split_source_blocks_preserves_pdf_page_and_document_identity(self, proc):
+        blocks = [
+            SourceBlock(text="第一页的唯一事实。", metadata={"page": 1}),
+            SourceBlock(text="第二页的唯一事实。", metadata={"page": 2}),
+        ]
+
+        chunks = proc.split_source_blocks(
+            blocks, document_id="doc-123", source_file="演示文档.pdf"
+        )
+
+        assert [chunk.metadata["page"] for chunk in chunks] == [1, 2]
+        assert all(chunk.metadata["document_id"] == "doc-123" for chunk in chunks)
+        assert all(chunk.metadata["source_file"] == "演示文档.pdf" for chunk in chunks)
+        assert [chunk.metadata["chunk_id"] for chunk in chunks] == ["doc-123:0", "doc-123:1"]
 
 
 # ── ImportError branches ──────────────────────────────────────────────

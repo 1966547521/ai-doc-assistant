@@ -7,14 +7,9 @@ from dotenv import load_dotenv
 from src.vector_store import VectorStoreManager
 from src.qa_engine import QAEngine
 from src.memory_manager import MemoryManager
-from src.summary_engine import SummaryEngine
-from src.structure_analyzer import StructureAnalyzer
-from src.keyword_extractor import KeywordExtractor
 from src.cache_manager import SemanticCacheManager
-from src.translation_engine import TranslationEngine
-from src.report_generator import ReportGenerator
-from src.document_comparer import DocumentComparer
 from src.session_manager import SessionManager
+from src.application_service import ApplicationService
 from src.logger import get_logger
 from ui.theme import inject_theme
 from ui.sidebar import render_sidebar
@@ -40,17 +35,25 @@ def init_session_state():
         return
 
     with st.spinner("正在初始化引擎，请稍候..."):
+        if "application_service" not in st.session_state:
+            try:
+                st.session_state.application_service = ApplicationService()
+            except RuntimeError as exc:
+                st.error(f"API 配置不可用：{exc}")
+                st.info("请按照 .env.example 分别配置 Chat 与 Embedding API 后重新启动。")
+                st.stop()
+        service = st.session_state.application_service
         defaults = {
             "vector_store": VectorStoreManager,
             "cache_manager": SemanticCacheManager,
             "qa_engine": lambda: QAEngine(cache_manager=st.session_state.cache_manager),
             "memory_manager": MemoryManager,
-            "summary_engine": SummaryEngine,
-            "structure_analyzer": StructureAnalyzer,
-            "keyword_extractor": KeywordExtractor,
-            "translation_engine": TranslationEngine,
-            "report_generator": ReportGenerator,
-            "document_comparer": DocumentComparer,
+            "summary_engine": lambda: service.summary_engine,
+            "structure_analyzer": lambda: service.structure_analyzer,
+            "keyword_extractor": lambda: service.keyword_extractor,
+            "translation_engine": lambda: service.translation_engine,
+            "report_generator": lambda: service.report_generator,
+            "document_comparer": lambda: service.document_comparer,
             "session_manager": SessionManager,
         }
 

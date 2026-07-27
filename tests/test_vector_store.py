@@ -4,11 +4,21 @@ import shutil
 import tempfile
 import pytest
 from langchain_core.documents import Document
+from langchain_core.embeddings import DeterministicFakeEmbedding
 from src.vector_store import VectorStoreManager
 
 
 class TestVectorStoreManager:
     """Test cases for VectorStoreManager with incremental updates."""
+
+    @pytest.fixture
+    def make_store(self):
+        def factory(path):
+            return VectorStoreManager(
+                persist_directory=path,
+                embeddings=DeterministicFakeEmbedding(size=32),
+            )
+        return factory
     
     @pytest.fixture
     def temp_vectordb_dir(self):
@@ -58,9 +68,9 @@ class TestVectorStoreManager:
             ),
         ]
     
-    def test_content_hash_computation(self, temp_vectordb_dir):
+    def test_content_hash_computation(self, temp_vectordb_dir, make_store):
         """Test content hash computation for deduplication."""
-        vs_manager = VectorStoreManager(persist_directory=temp_vectordb_dir)
+        vs_manager = make_store(temp_vectordb_dir)
         content = "This is a test document."
         
         hash1 = vs_manager._compute_content_hash(content)
@@ -71,10 +81,14 @@ class TestVectorStoreManager:
         # Different content should have different hash
         hash3 = vs_manager._compute_content_hash("Different content")
         assert hash1 != hash3
+
+    def test_collection_name_is_isolated_by_index_id(self):
+        assert VectorStoreManager.collection_name_for("document-a") != VectorStoreManager.collection_name_for("document-b")
+        assert VectorStoreManager.collection_name_for("document-a").startswith("document_")
     
-    def test_add_documents_incremental(self, temp_vectordb_dir, sample_documents):
+    def test_add_documents_incremental(self, temp_vectordb_dir, sample_documents, make_store):
         """Test adding documents with incremental update."""
-        vs_manager = VectorStoreManager(persist_directory=temp_vectordb_dir)
+        vs_manager = make_store(temp_vectordb_dir)
         
         # Initial add
         result = vs_manager.add_documents(sample_documents, incremental=True)
@@ -88,9 +102,9 @@ class TestVectorStoreManager:
         assert result2["skipped"] == 2
         assert result2["total"] == 2
     
-    def test_add_documents_no_incremental(self, temp_vectordb_dir, sample_documents):
+    def test_add_documents_no_incremental(self, temp_vectordb_dir, sample_documents, make_store):
         """Test adding documents without incremental update."""
-        vs_manager = VectorStoreManager(persist_directory=temp_vectordb_dir)
+        vs_manager = make_store(temp_vectordb_dir)
         
         # Initial add
         vs_manager.add_documents(sample_documents, incremental=True)
@@ -100,36 +114,36 @@ class TestVectorStoreManager:
         assert result["added"] == 2
         assert result["skipped"] == 0
     
-    def test_document_count(self, temp_vectordb_dir, sample_documents):
+    def test_document_count(self, temp_vectordb_dir, sample_documents, make_store):
         """Test document count functionality."""
-        vs_manager = VectorStoreManager(persist_directory=temp_vectordb_dir)
+        vs_manager = make_store(temp_vectordb_dir)
         
         assert vs_manager.get_document_count() == 0
         
         vs_manager.add_documents(sample_documents, incremental=True)
         assert vs_manager.get_document_count() == 2
     
-    def test_clear_store(self, temp_vectordb_dir, sample_documents):
+    def test_clear_store(self, temp_vectordb_dir, sample_documents, make_store):
         """Test clearing the vector store."""
-        vs_manager = VectorStoreManager(persist_directory=temp_vectordb_dir)
+        vs_manager = make_store(temp_vectordb_dir)
         vs_manager.add_documents(sample_documents, incremental=True)
         assert vs_manager.get_document_count() == 2
         
         vs_manager.clear_store()
         assert vs_manager.get_document_count() == 0
     
-    def test_similarity_search(self, temp_vectordb_dir, sample_documents):
+    def test_similarity_search(self, temp_vectordb_dir, sample_documents, make_store):
         """Test similarity search functionality."""
-        vs_manager = VectorStoreManager(persist_directory=temp_vectordb_dir)
+        vs_manager = make_store(temp_vectordb_dir)
         vs_manager.add_documents(sample_documents, incremental=True)
         
         results = vs_manager.similarity_search("AI and machine learning", k=1)
         assert len(results) == 1
         assert "AI" in results[0].page_content
     
-    def test_get_store(self, temp_vectordb_dir):
+    def test_get_store(self, temp_vectordb_dir, make_store):
         """Test getting the vector store instance."""
-        vs_manager = VectorStoreManager(persist_directory=temp_vectordb_dir)
+        vs_manager = make_store(temp_vectordb_dir)
         store = vs_manager.get_store()
         assert store is not None
 

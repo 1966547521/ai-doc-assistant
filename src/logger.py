@@ -9,6 +9,8 @@ from datetime import datetime
 from typing import Dict, Any
 from pathlib import Path
 
+from src.runtime_paths import LOG_DIR, ensure_runtime_directories
+
 
 class LoggerManager:
     """Centralized logging manager for the AI Document Assistant application.
@@ -36,7 +38,7 @@ class LoggerManager:
 
     def __init__(
         self,
-        log_dir: str = "logs",
+        log_dir: str = str(LOG_DIR),
         log_level: str = "INFO",
         console_enabled: bool = True,
         file_enabled: bool = True,
@@ -51,6 +53,7 @@ class LoggerManager:
             file_enabled: Whether to log to file
             verbose: Whether to use verbose log format
         """
+        ensure_runtime_directories()
         self.log_dir = Path(log_dir)
         self.log_level = self._parse_log_level(log_level)
         self.console_enabled = console_enabled

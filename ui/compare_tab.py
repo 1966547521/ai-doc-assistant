@@ -62,8 +62,9 @@ def render_compare_tab():
 
         if st.button("开始对比"):
             with st.spinner("正在对比文档..."):
-                comparer = st.session_state.document_comparer
-                text1 = st.session_state.current_document_text
+                service = st.session_state.application_service
+                comparer = service.document_comparer
+                text1 = service.document_text
                 text2 = st.session_state.compare_document_text
 
                 similarity = comparer.calculate_similarity(text1, text2)

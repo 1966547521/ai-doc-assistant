@@ -12,6 +12,8 @@ from collections import OrderedDict
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
+from src.runtime_paths import CACHE_DIR, ensure_runtime_directories
+
 logger = logging.getLogger(__name__)
 
 
@@ -32,11 +34,12 @@ class SemanticCacheManager:
 
     def __init__(
         self,
-        cache_dir: str = "cache",
+        cache_dir: str = str(CACHE_DIR),
         max_entries: int = 1000,
         default_ttl: float = 3600 * 24,  # 24 hours
         similarity_threshold: float = 0.25,  # Jaccard similarity threshold for semantic match
     ):
+        ensure_runtime_directories()
         self.cache_dir = cache_dir
         self.max_entries = max_entries
         self.default_ttl = default_ttl

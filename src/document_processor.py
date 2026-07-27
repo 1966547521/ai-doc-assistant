@@ -5,16 +5,28 @@ file formats including PDF, DOCX, XLSX, PPTX, TXT, and Markdown.
 All operations are logged for monitoring and debugging purposes.
 """
 
+import hashlib
 import re
+from dataclasses import dataclass
+from pathlib import Path
 from typing import List, Dict, Any
 
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 from src.logger import get_logger
+from src.semantic_chunker import SemanticChunker
 
 # Initialize module logger
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class SourceBlock:
+    """A cleaned document block with enough metadata to cite its origin."""
+
+    text: str
+    metadata: Dict[str, Any]
 
 # Try to import optional document processing libraries
 try:
@@ -69,12 +81,13 @@ def clean_text(text: str) -> str:
     # common punctuation, newlines, tabs
     text = re.sub(
         r"[^\u0000-\u024F\u3400-\u4DBF\u4E00-\u9FFF\u3040-\u30FF\uAC00-\uD7A3"
-        r"\U00020000-\U0002A6DF\uF900-\uFAFF\U0002F800-\U0002FA1F\n\r\t ]", "", text
+        r"\u3000-\u303F\uFF00-\uFFEF\U00020000-\U0002A6DF\uF900-\uFAFF"
+        r"\U0002F800-\U0002FA1F\n\r\t ]", "", text
     )
 
     # Remove sequences of special characters
     text = re.sub(
-        r"[^\w\u4E00-\u9FFF\s.,!?;:()\[\]{}<>\"\'`~@#$%^&*+-=_|\\/]+", " ", text
+        r"[^\w\u4E00-\u9FFF\u3000-\u303F\uFF00-\uFFEF\s.,!?;:()\[\]{}<>\"\'`~@#$%^&*+-=_|\\/]+", " ", text
     )
 
     # Normalize whitespace
@@ -105,8 +118,9 @@ class DocumentProcessor:
         ".md": {"name": "Markdown", "description": "Markdown格式文件"},
     }
 
-    def __init__(self):
+    def __init__(self, *, enable_semantic_chunking: bool = False):
         """Initialize the document processor with text splitter."""
+        self.semantic_chunker = SemanticChunker() if enable_semantic_chunking else None
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000, chunk_overlap=200, length_function=len
         )
@@ -275,7 +289,7 @@ class DocumentProcessor:
             True if format is available, False otherwise
         """
         availability = {
-            ".pdf": True,  # PyPDF2 is required dependency
+            ".pdf": True,  # pypdf is required dependency
             ".docx": DOCX_AVAILABLE,
             ".xlsx": XLSX_AVAILABLE,
             ".pptx": PPTX_AVAILABLE,
@@ -318,6 +332,50 @@ class DocumentProcessor:
         logger.error(f"Unsupported file format: {file_path}")
         raise ValueError(f"不支持的文件格式: {file_path}")
 
+    def read_source_blocks(self, file_path: str) -> List[SourceBlock]:
+        """Extract cleaned blocks together with their location in the source file."""
+        lower_path = file_path.lower()
+        if lower_path.endswith(".pdf"):
+            reader = PdfReader(file_path)
+            return [
+                SourceBlock(text=text, metadata={"page": page_number})
+                for page_number, page in enumerate(reader.pages, start=1)
+                if (text := clean_text(page.extract_text() or ""))
+            ]
+
+        if lower_path.endswith(".docx"):
+            if not DOCX_AVAILABLE:
+                raise ImportError(
+                    "python-docx library not installed. Please install it with: python-docx"
+                )
+            doc = DocxDocument(file_path)
+            blocks: List[SourceBlock] = []
+            for index, paragraph in enumerate(doc.paragraphs, start=1):
+                if text := clean_text(paragraph.text):
+                    blocks.append(
+                        SourceBlock(
+                            text=text,
+                            metadata={"block_type": "paragraph", "paragraph": index},
+                        )
+                    )
+            for table_index, table in enumerate(doc.tables, start=1):
+                for row_index, row in enumerate(table.rows, start=1):
+                    if text := clean_text("\t".join(cell.text for cell in row.cells)):
+                        blocks.append(
+                            SourceBlock(
+                                text=text,
+                                metadata={
+                                    "block_type": "table_row",
+                                    "table": table_index,
+                                    "row": row_index,
+                                },
+                            )
+                        )
+            return blocks
+
+        text = self.read_document(file_path)
+        return [SourceBlock(text=text, metadata={})] if text else []
+
     def split_text(self, text: str) -> List[Document]:
         """Split text into chunks for vector storage.
 
@@ -329,6 +387,32 @@ class DocumentProcessor:
         """
         chunks = self.text_splitter.split_text(text)
         return [Document(page_content=chunk) for chunk in chunks]
+
+    def split_source_blocks(
+        self,
+        blocks: List[SourceBlock],
+        *,
+        document_id: str,
+        source_file: str,
+    ) -> List[Document]:
+        """Split source-aware blocks without losing their citation metadata."""
+        chunks: List[Document] = []
+        for block in blocks:
+            texts = self.text_splitter.split_text(block.text)
+            if self.semantic_chunker and re.search(r"[\u4e00-\u9fff]", block.text):
+                try:
+                    texts = self.semantic_chunker.split(block.text)
+                except RuntimeError as exc:
+                    logger.warning("Semantic chunking unavailable, using rules: %s", exc)
+            for text in texts:
+                metadata = {
+                    **block.metadata,
+                    "document_id": document_id,
+                    "source_file": source_file,
+                    "chunk_id": f"{document_id}:{len(chunks)}",
+                }
+                chunks.append(Document(page_content=text, metadata=metadata))
+        return chunks
 
     def process_document(self, file_path: str) -> Dict[str, Any]:
         """Process a document file and return structured information.
@@ -352,8 +436,13 @@ class DocumentProcessor:
             format_name = self.SUPPORTED_FORMATS.get(f".{ext}", {}).get("name", ext.upper())
 
             # Read and process
-            text = self.read_document(file_path)
-            chunks = self.split_text(text)
+            source_blocks = self.read_source_blocks(file_path)
+            text = "\n\n".join(block.text for block in source_blocks)
+            chunks = self.split_source_blocks(
+                source_blocks,
+                document_id=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                source_file=Path(file_path).name,
+            )
 
             result = {
                 "text": text,

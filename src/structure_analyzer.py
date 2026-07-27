@@ -9,6 +9,8 @@ Two-phase approach:
 import re
 from typing import Dict, List, Tuple, Optional
 
+from langchain_core.language_models import BaseChatModel
+
 from src.logger import get_logger
 from src.llm_enhancer import LLMEnhancer
 
@@ -18,7 +20,7 @@ logger = get_logger(__name__)
 class StructureAnalyzer:
     """Analyzes document structure — regex extraction + LLM semantic understanding."""
 
-    def __init__(self):
+    def __init__(self, llm: BaseChatModel | None = None):
 
         self.title_patterns = [
             (r"^#{1}\s+(.+)", "h1"),
@@ -32,7 +34,9 @@ class StructureAnalyzer:
             (r"^(.+)[:：]", "h3"),
         ]
 
-        self._llm_enhancer: Optional[LLMEnhancer] = None
+        self._llm_enhancer: Optional[LLMEnhancer] = (
+            LLMEnhancer(llm) if llm is not None else None
+        )
 
         self.generic_structure = [
             "引言", "背景", "概述", "简介",
@@ -42,7 +46,7 @@ class StructureAnalyzer:
             "参考文献", "附录", "致谢"
         ]
 
-        self._llm_available: Optional[bool] = None
+        self._llm_available: Optional[bool] = True if llm is not None else None
 
     # ── LLM helper ──────────────────────────────────────────────
 

@@ -5,12 +5,12 @@ services:
       - "8501:8501"
     env_file:
       - .env
+    environment:
+      APP_DATA_DIR: /app/data
+      SEMANTIC_MODEL_PATH: /app/models/potion-multilingual-128M
     volumes:
-      - ./sessions.json:/app/sessions.json
-      - ./history.json:/app/history.json
-      - ./chroma_db:/app/chroma_db
-      - ./cache:/app/cache
-      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./models:/app/models
     restart: unless-stopped
 
   api:
@@ -20,23 +20,10 @@ services:
       - "8000:8000"
     env_file:
       - .env
+    environment:
+      APP_DATA_DIR: /app/data
+      SEMANTIC_MODEL_PATH: /app/models/potion-multilingual-128M
     volumes:
-      - ./sessions.json:/app/sessions.json
-      - ./history.json:/app/history.json
-      - ./chroma_db:/app/chroma_db
-      - ./cache:/app/cache
-      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./models:/app/models
     restart: unless-stopped
-
-  ollama:
-    image: ollama/ollama:latest
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    profiles:
-      - local
-    restart: unless-stopped
-
-volumes:
-  ollama_data:

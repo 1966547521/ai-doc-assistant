@@ -53,7 +53,10 @@ class TestQAEngine:
         
         mock_retriever = Mock()
         mock_retriever.invoke.return_value = [
-            Mock(page_content="Relevant document content about AI.")
+            Mock(
+                page_content="Relevant document content about AI.",
+                metadata={"source_file": "演示.pdf", "page": 2, "chunk_id": "doc:0"},
+            )
         ]
         
         class MockRagChain:
@@ -69,6 +72,33 @@ class TestQAEngine:
         assert "answer" in result
         assert result["answer"] == "This is the answer based on documents."
         assert len(result["sources"]) > 0
+        assert result["citations"] == [
+            {"source_file": "演示.pdf", "page": 2, "chunk_id": "doc:0"}
+        ]
+
+    def test_answer_retrieves_once_and_uses_same_context_for_generation(self, qa_engine):
+        engine, _ = qa_engine
+        document = Mock(page_content="唯一检索片段", metadata={"page": 3})
+        retriever = Mock()
+        retriever.invoke.return_value = [document]
+
+        class RecordingChain:
+            payload = None
+
+            def invoke(self, payload):
+                self.payload = payload
+                return "回答"
+
+        chain = RecordingChain()
+        engine.set_retriever(retriever)
+        engine.rag_chain = chain
+        engine.cache_manager.clear_all()
+
+        result = engine.answer("问题")
+
+        retriever.invoke.assert_called_once_with("问题")
+        assert chain.payload["context"] == "唯一检索片段"
+        assert result["sources"][0].startswith("唯一检索片段")
     
     def test_answer_with_chat_history(self, qa_engine):
         """Test answering with chat history."""

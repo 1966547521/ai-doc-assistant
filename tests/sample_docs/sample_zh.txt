@@ -1,33 +1,31 @@
 # 项目背景
 
-本项目旨在构建一个基于 RAG（检索增强生成）的智能文档问答系统。系统支持 PDF、DOCX、XLSX、PPTX、TXT、Markdown 六种文档格式的解析与索引。
+本项目旨在构建一个基于 RAG（检索增强生成）的智能文档问答系统。核心链路支持中文 PDF 与 DOCX 的解析、索引和可追溯问答。
 
 # 技术架构
 
-系统采用四层模块化架构：文档处理层(DocumentProcessor)负责多格式解析与分块；向量存储层(VectorStoreManager)基于 ChromaDB 实现增量索引与 SHA-256 去重；问答引擎层(QAEngine)实现 RAG 链路，集成语义缓存；Agent 层(AgentSession)采用手写 ReAct 循环，兼容 DeepSeek 推理模型。
+系统采用分层模块化架构：文档处理层(DocumentProcessor)保留页码与段落来源；向量存储层(VectorStoreManager)为每份文档创建独立索引；问答引擎层(QAEngine)使用同一批检索片段生成回答与引用；Agent 层(AgentSession)采用 Pydantic 结构化意图路由。
 
 # 核心功能
 
-1. 六种文档格式自动解析与清洗
-2. 基于 RecursiveCharacterTextSplitter 的分块（chunk_size=1000, overlap=200）
+1. 中文 PDF/DOCX 自动解析与来源保留
+2. 规则分块与小型本地语义模型分块
 3. 向量检索与 Top-K 召回（top_k=5）
 4. 语义缓存（TTL+LRU 淘汰策略）
-5. 多模型嵌入（DashScope → OpenAI → Ollama 三级回退，自动适配维度）
-6. 手写 ReAct Agent，支持文档问答/摘要/结构分析/信息提取/翻译/报告生成/文档对比
+5. Chat 与 Embedding 使用独立、显式的 OpenAI 兼容 API 配置
+6. 结构化意图 Agent，支持文档问答/摘要/结构分析/信息提取/翻译/报告生成/文档对比
 
 # Embedding 配置
 
 系统通过环境变量选择 Embedding 模型：
-- DASHSCOPE_API_KEY → text-embedding-v3
-- OPENAI_API_KEY → text-embedding-3-small
-- 均不可用时 → 回退到 Ollama(nomic-embed-text)
-三种模型的输出维度不同（1536/1536/768），系统自动检测向量库已有维度并匹配。
+- EMBEDDING_API_KEY / EMBEDDING_BASE_URL / EMBEDDING_MODEL
+索引按模型与文档隔离，维度不兼容时保留旧索引并明确报错。
 
 # Agent 工具集
 
-Agent 通过文本标记 ⚙️TOOL: / ⚙️END 调用工具，避免 DeepSeek 推理模型在原生 tool calling 中返回 extra reasoning_content 的问题。单会话最多 8 轮工具调用，支持多步协作（如先总结后翻译）。
+Agent 使用 Pydantic 结构化意图调用工具，支持多步协作（如先总结后翻译），路由失败时回到真实 RAG 问答。
 
 # 测试覆盖
 
-系统包含 210 个单元测试，覆盖 DocumentProcessor、VectorStore、QAEngine、AgentSession、CacheManager 等全部核心模块。测试使用 mock 隔离外部依赖，可在无 API Key 环境下运行。
+系统提供可重复的单元测试，以及显式启用的真实 API 集成验收。真实验收会测试 DOCX 解析、向量索引、RAG 问答和来源引用。
 

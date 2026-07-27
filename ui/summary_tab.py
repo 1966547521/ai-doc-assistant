@@ -25,8 +25,9 @@ def render_summary_tab():
 
     if st.button("生成摘要"):
         with st.spinner("正在生成摘要..."):
-            engine = st.session_state.summary_engine
-            text = st.session_state.current_document_text
+            service = st.session_state.application_service
+            engine = service.summary_engine
+            text = service.document_text
 
             with st.empty():
                 if summary_type == "简明摘要":
